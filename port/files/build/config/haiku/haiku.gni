@@ -3,19 +3,21 @@
 # found in the LICENSE file.
 
 declare_args() {
-  # Prefix for the Haiku cross toolchain's binutils, when building on a
-  # non-Haiku host. Empty when building natively on Haiku, where the tools
-  # are unprefixed. Only the gcc fallback toolchain uses it: the clang
-  # toolchains use Chromium's own clang and lld.
-  haiku_toolprefix = ""
+  # Prefix for the Haiku cross toolchain, when building on a non-Haiku host.
+  # Empty when building natively on Haiku, where the tools are unprefixed.
+  haiku_toolprefix = "aarch64-unknown-haiku-"
 
   # Root of a Haiku sysroot: the directory holding boot/system/develop.
   # Empty means build natively against the running system.
   haiku_sysroot = ""
 
-  # The directory holding gcc's crtbeginS.o and libgcc for the target
-  # (boot/system/develop/tools/lib/gcc/<triple>/<version> in the sysroot).
-  # clang's Haiku driver links them, but does not look there by itself in a
-  # cross build.
+  # Directory holding the cross GCC's own runtime objects -- crtbeginS.o,
+  # crtendS.o and libgcc.a. These are part of the compiler, not of the
+  # sysroot, so --sysroot alone does not find them and a clang that was not
+  # built to know about this GCC has no other way to. Empty means the
+  # compiler already knows, which is the case when building natively.
+  #
+  # `aarch64-unknown-haiku-gcc -print-file-name=crtbeginS.o` prints the file
+  # this should be the directory of.
   haiku_gcc_lib_dir = ""
 }

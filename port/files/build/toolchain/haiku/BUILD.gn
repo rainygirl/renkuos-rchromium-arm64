@@ -2,10 +2,12 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 #
-# Toolchains for building Chromium against Haiku: Chromium's own clang and
-# lld, run with --target=<cpu>-unknown-haiku (compiler_cpu_abi.gn) and the
-# sysroot from //build/config/haiku:sdk. The same toolchains serve a native
-# build on Haiku, with the clang from the image.
+# Toolchains for building Chromium against Haiku.
+#
+# Both the native case (building on Haiku with the clang from the image) and
+# the cross case (building on Linux with the Haiku cross toolchain) go through
+# clang_toolchain; they differ only in the tool prefix, which
+# //build/config/haiku:haiku_toolprefix supplies.
 
 import("//build/config/haiku/haiku.gni")
 import("//build/toolchain/gcc_toolchain.gni")
@@ -21,5 +23,29 @@ clang_toolchain("clang_x64") {
   toolchain_args = {
     current_cpu = "x64"
     current_os = "haiku"
+  }
+}
+
+# The Haiku cross toolchain is gcc-based; it is the only compiler that can
+# build for Haiku from a Linux host without first bootstrapping clang, so it
+# stays available as a fallback.
+gcc_toolchain("arm64") {
+  toolprefix = haiku_toolprefix
+
+  cc = "${toolprefix}gcc"
+  cxx = "${toolprefix}g++"
+
+  ar = "${toolprefix}ar"
+  ld = cxx
+  readelf = "${toolprefix}readelf"
+  nm = "${toolprefix}nm"
+
+  toolchain_args = {
+    current_cpu = "arm64"
+    current_os = "haiku"
+
+    # Remote execution does not support gcc.
+    use_remoteexec = false
+    is_clang = false
   }
 }
