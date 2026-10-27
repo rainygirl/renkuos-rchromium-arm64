@@ -372,6 +372,13 @@ void HaikuWindow::OnToolbarInstall() {
   }
 }
 
+void HaikuWindow::OnToolbarExtensionAction(std::string id,
+                                           const gfx::Rect& anchor) {
+  if (HaikuToolbarObserver* obs = GetHaikuToolbarObserver(widget_)) {
+    obs->OnExtensionActionClicked(id, anchor);
+  }
+}
+
 void HaikuWindow::SetToolbarAddress(const std::string& url) {
   if (window_) {
     window_->SetAddressText(url.c_str());
@@ -406,6 +413,28 @@ void HaikuWindow::SetToolbarInstallable(bool installable,
                                         const std::string& app_name) {
   if (window_) {
     window_->SetInstallable(installable, app_name.c_str());
+  }
+}
+
+void HaikuWindow::SetToolbarAction(const HaikuToolbarAction& action) {
+  if (window_) {
+    const bool has_icon =
+        action.width > 0 && action.height > 0 &&
+        action.argb.size() ==
+            static_cast<size_t>(action.width) * static_cast<size_t>(action.height);
+    window_->SetExtensionAction(
+        action.id.c_str(),
+        has_icon ? reinterpret_cast<const unsigned int*>(action.argb.data())
+                 : nullptr,
+        has_icon ? action.width : 0, has_icon ? action.height : 0,
+        action.badge_text.c_str(), action.badge_background,
+        action.badge_text_color, action.tooltip.c_str(), action.enabled);
+  }
+}
+
+void HaikuWindow::RemoveToolbarAction(const std::string& id) {
+  if (window_) {
+    window_->RemoveExtensionAction(id.c_str());
   }
 }
 
@@ -449,6 +478,22 @@ void HaikuToolbarSetInstallable(gfx::AcceleratedWidget widget,
   auto it = ToolbarWindowMap().find(widget);
   if (it != ToolbarWindowMap().end()) {
     it->second->SetToolbarInstallable(installable, app_name);
+  }
+}
+
+void HaikuToolbarSetAction(gfx::AcceleratedWidget widget,
+                           const HaikuToolbarAction& action) {
+  auto it = ToolbarWindowMap().find(widget);
+  if (it != ToolbarWindowMap().end()) {
+    it->second->SetToolbarAction(action);
+  }
+}
+
+void HaikuToolbarRemoveAction(gfx::AcceleratedWidget widget,
+                              const std::string& id) {
+  auto it = ToolbarWindowMap().find(widget);
+  if (it != ToolbarWindowMap().end()) {
+    it->second->RemoveToolbarAction(id);
   }
 }
 

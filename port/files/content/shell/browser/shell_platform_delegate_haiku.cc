@@ -41,6 +41,7 @@
 #include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "content/shell/browser/shell.h"
+#include "content/shell/browser/extensions/shell_extensions.h"
 #include "content/shell/browser/shell_platform_data_aura.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
@@ -195,10 +196,11 @@ bool WriteLauncher(const base::FilePath& dir,
   script += "# The window keeps the app's name rather than following the page.\n";
   script += "RCH_APP_NAME=" + ShellQuote(app_name) + "\n";
   script += "export RCH_APP_NAME\n\n";
+  script += "# Haiku's default of 256 descriptors is not enough once\n";
+  script += "# renderers run in their own processes.\n";
+  script += "ulimit -n 8192 2>/dev/null\n\n";
   script += "exec \"$SHELL_BIN\" \\\n";
   script += "\t--ozone-platform=haiku \\\n";
-  script += "\t--no-sandbox \\\n";
-  script += "\t--single-process \\\n";
   script += "\t--disable-gpu \\\n";
   script += "\t--in-process-gpu \\\n";
   script += "\t--disable-gpu-compositing \\\n";
@@ -394,6 +396,12 @@ class ShellToolbarObserver final : public ui::HaikuToolbarObserver {
     }
   }
 
+  void OnExtensionActionClicked(const std::string& id,
+                                const gfx::Rect& anchor) override {
+    extensions::ShellExtensions::ToolbarActionClicked(shell_->web_contents(),
+                                                      id, anchor);
+  }
+
   void OnInstall() override {
     if (shell_ == nullptr || shell_->web_contents() == nullptr) {
       return;
@@ -439,36 +447,33 @@ class HostResizeObserver : public aura::WindowTreeHostObserver {
   }
 };
 
-// Closes the shells when the BWindow's close box is pressed.
+// Closes the window's Shell when the BWindow's close box is pressed.
 //
 // ShimWindow::QuitRequested() -> HaikuEventBridge::OnQuitRequested() ->
 // HaikuWindow::OnCloseRequestedFromWindowThread() ->
 // PlatformWindowDelegate::OnCloseRequest() ->
-// WindowTreeHost::OnHostCloseRequested() -> here. Nothing listened at the end
-// of that chain, so the close box did nothing. Every Shell shares the one
-// host, so closing the window closes them all; Shell quits the message loop
-// when the last one goes.
+// WindowTreeHost::OnHostCloseRequested() -> here. Each Shell has its own
+// window; Shell quits the message loop when the last one goes.
 class HostCloseObserver : public aura::WindowTreeHostObserver {
  public:
+  explicit HostCloseObserver(Shell* shell) : shell_(shell) {}
+
   void OnHostCloseRequested(aura::WindowTreeHost* host) override {
     // Not synchronously: Shell::Close() tears down what is iterating this
     // observer list right now.
     base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
-        FROM_HERE, base::BindOnce(&HostCloseObserver::CloseAllShells));
+        FROM_HERE, base::BindOnce(&HostCloseObserver::CloseShell, shell_));
   }
 
  private:
-  static void CloseAllShells() {
-    // Copied: each Close() removes its Shell from Shell::windows().
-    const std::vector<Shell*> shells = Shell::windows();
-    for (Shell* shell : shells) {
-      // A second press before this ran may already have closed some.
-      if (std::ranges::find(Shell::windows(), shell) !=
-          Shell::windows().end()) {
-        shell->Close();
-      }
+  static void CloseShell(Shell* shell) {
+    // A second press before this ran may already have closed it.
+    if (std::ranges::find(Shell::windows(), shell) != Shell::windows().end()) {
+      shell->Close();
     }
   }
+
+  raw_ptr<Shell> shell_;
 };
 
 void FocusContentsSoon(base::WeakPtr<WebContents> contents, int attempts_left);
@@ -514,32 +519,35 @@ void FocusContentsSoon(base::WeakPtr<WebContents> contents, int attempts_left) {
 struct ShellPlatformDelegate::ShellData {
   gfx::NativeWindow window = gfx::NativeWindow();
   gfx::AcceleratedWidget widget = gfx::kNullAcceleratedWidget;
+  // The Shell's native window: its own, or the startup one (see
+  // PlatformData), which `own_aura` then leaves null. `own_aura` comes first
+  // so that `aura` is cleared before the window it may point to is freed.
+  std::unique_ptr<ShellPlatformDataAura> own_aura;
+  raw_ptr<ShellPlatformDataAura> aura = nullptr;
+  std::unique_ptr<HostResizeObserver> resize_observer;
+  std::unique_ptr<HostCloseObserver> close_observer;
   std::unique_ptr<ShellToolbarObserver> toolbar_observer;
   // Enabled state Shell reports one button at a time; the shim wants both.
   bool back_enabled = false;
   bool forward_enabled = false;
 };
 
+// The window made at startup. It also owns the process's display::Screen,
+// so it lives as long as the delegate: it serves one Shell at a time, is
+// hidden when that Shell closes, and goes to the next new one. Every other
+// Shell gets a window of its own.
 struct ShellPlatformDelegate::PlatformData {
   std::unique_ptr<ShellPlatformDataAura> aura;
-  HostResizeObserver resize_observer;
-  HostCloseObserver close_observer;
+  raw_ptr<Shell> aura_shell = nullptr;
 };
 
 ShellPlatformDelegate::ShellPlatformDelegate() = default;
-ShellPlatformDelegate::~ShellPlatformDelegate() {
-  if (platform_ && platform_->aura) {
-    platform_->aura->host()->RemoveObserver(&platform_->resize_observer);
-    platform_->aura->host()->RemoveObserver(&platform_->close_observer);
-  }
-}
+ShellPlatformDelegate::~ShellPlatformDelegate() = default;
 
 void ShellPlatformDelegate::Initialize(const gfx::Size& default_window_size) {
   platform_ = std::make_unique<PlatformData>();
   platform_->aura =
       std::make_unique<ShellPlatformDataAura>(default_window_size);
-  platform_->aura->host()->AddObserver(&platform_->resize_observer);
-  platform_->aura->host()->AddObserver(&platform_->close_observer);
 }
 
 void ShellPlatformDelegate::CreatePlatformWindow(
@@ -548,14 +556,29 @@ void ShellPlatformDelegate::CreatePlatformWindow(
   DCHECK(!shell_data_map_.contains(shell));
   ShellData& shell_data = shell_data_map_[shell];
 
-  // All shells share the one host window. Upstream resizes it with
-  // ResizeWindow(), i.e. gfx::Rect(size) at (0,0): a new window opened from a
-  // link would yank the BWindow back to the top-left corner, tab off screen.
-  // Keep the origin where the user left it and only apply the size.
-  aura::WindowTreeHost* host = platform_->aura->host();
-  gfx::Rect bounds = host->GetBoundsInPixels();
-  bounds.set_size(initial_size);
-  host->SetBoundsInPixels(bounds);
+  if (!platform_->aura_shell) {
+    // The startup window is free. Upstream resizes it with ResizeWindow(),
+    // i.e. gfx::Rect(size) at (0,0), which would yank the BWindow back to
+    // the top-left corner; keep the origin where the user left it.
+    platform_->aura_shell = shell;
+    shell_data.aura = platform_->aura.get();
+    aura::WindowTreeHost* host = shell_data.aura->host();
+    gfx::Rect bounds = host->GetBoundsInPixels();
+    bounds.set_size(initial_size);
+    host->SetBoundsInPixels(bounds);
+  } else {
+    shell_data.own_aura = std::make_unique<ShellPlatformDataAura>(initial_size);
+    shell_data.aura = shell_data.own_aura.get();
+    // Cascade new windows from the top-left, as Tracker does.
+    const int step = 30 * static_cast<int>(shell_data_map_.size() % 8);
+    shell_data.aura->host()->SetBoundsInPixels(
+        gfx::Rect(gfx::Point(step, step), initial_size));
+  }
+  aura::WindowTreeHost* host = shell_data.aura->host();
+  shell_data.resize_observer = std::make_unique<HostResizeObserver>();
+  shell_data.close_observer = std::make_unique<HostCloseObserver>(shell);
+  host->AddObserver(shell_data.resize_observer.get());
+  host->AddObserver(shell_data.close_observer.get());
 
   shell_data.window = host->window();
   shell_data.widget = host->GetAcceleratedWidget();
@@ -573,21 +596,38 @@ void ShellPlatformDelegate::CleanUp(Shell* shell) {
   DCHECK(shell_data_map_.contains(shell));
   ShellData& shell_data = shell_data_map_[shell];
   ui::SetHaikuToolbarObserver(shell_data.widget, nullptr);
+  extensions::ShellExtensions::ToolbarWindowDestroyed(shell_data.widget);
+  aura::WindowTreeHost* host = shell_data.aura->host();
+  host->RemoveObserver(shell_data.resize_observer.get());
+  host->RemoveObserver(shell_data.close_observer.get());
+  if (platform_->aura_shell == shell) {
+    // Keep the startup window for the next Shell (it owns the Screen).
+    host->Hide();
+    platform_->aura_shell = nullptr;
+  }
   shell_data_map_.erase(shell);
 }
 
 void ShellPlatformDelegate::SetContents(Shell* shell) {
+  // Extensions see every Shell's contents (popups included): their frames
+  // get the extension frame hosts and content scripts.
+  extensions::ShellExtensions::WebContentsCreated(shell->web_contents());
+
+  ShellData& shell_data = shell_data_map_[shell];
   aura::Window* content = shell->web_contents()->GetNativeView();
-  aura::Window* parent = platform_->aura->host()->window();
+  aura::Window* parent = shell_data.aura->host()->window();
   if (!parent->Contains(content)) {
     parent->AddChild(content);
   }
+  content->SetBounds(gfx::Rect(parent->bounds().size()));
   content->Show();
+  extensions::ShellExtensions::ToolbarWindowCreated(shell_data.widget,
+                                                    shell->web_contents());
 
   // The aura path never shows the host (native) window on its own -- unlike the
   // views delegate, which calls GetHost()->Show() explicitly. Without this the
   // BWindow stays hidden and only the desktop is visible.
-  platform_->aura->ShowWindow();
+  shell_data.aura->ShowWindow();
 
   // Nothing focuses the contents in this configuration: the aura delegate is
   // upstream's web-test one, where focus arrives from the test runner, and the
@@ -634,6 +674,13 @@ void ShellPlatformDelegate::SetAddressBarURL(Shell* shell, const GURL& url) {
   auto it = shell_data_map_.find(shell);
   if (it != shell_data_map_.end()) {
     ui::HaikuToolbarSetAddress(it->second.widget, url.spec());
+    // Shell only retitles from TitleWasSet, which WebContents skips when a
+    // restored history entry already carries its title (Back into the
+    // back-forward cache), leaving the previous page's title up. The URL
+    // changes on every such navigation, so retitle here as well.
+    ui::HaikuToolbarSetTitle(
+        it->second.widget,
+        base::UTF16ToUTF8(shell->web_contents()->GetTitle()));
   }
 }
 

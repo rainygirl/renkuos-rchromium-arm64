@@ -35,4 +35,10 @@ FontRenderParams GetFontRenderParams(const FontRenderParamsQuery& query,
   return HaikuDefaults();
 }
 
+// Haiku has one display scale, and fonts are rasterised for it by the
+// compositor; nothing here varies with it.
+float GetFontRenderParamsDeviceScaleFactor() {
+  return 1.0f;
+}
+
 }  // namespace gfx

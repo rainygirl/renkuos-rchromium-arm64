@@ -1,0 +1,27 @@
+// Copyright 2026 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+// R Chromium: permission features //extensions leaves to its embedder, for
+// the APIs content_shell provides, from
+// chrome/common/extensions/api/_permission_features.json.
+{
+  "cookies": {
+    "channel": "stable",
+    "extension_types": ["extension", "legacy_packaged_app"]
+  },
+  // The scripting API itself is core; its permission is not.
+  "scripting": {
+    "channel": "stable",
+    "extension_types": ["extension"],
+    "min_manifest_version": 3
+  },
+  "tabs": {
+    "channel": "stable",
+    "extension_types": ["extension", "legacy_packaged_app"]
+  },
+  "webNavigation": {
+    "channel": "stable",
+    "extension_types": ["extension", "legacy_packaged_app"]
+  }
+}

@@ -65,7 +65,8 @@ class Delegate {
   // loading state last pushed through NativeWindow::SetLoadingState.
   virtual void OnReloadOrStop() {}
   virtual void OnNavigateToURL(const char* utf8) {}
-  // The install button.
+  // The install button, which only exists while the page has a usable
+  // web app manifest. See HaikuShimWindow::SetInstallable().
   virtual void OnInstall() {}
 
   // The mouse wheel, and two-finger scrolling on a touchpad or through QEMU's
@@ -78,6 +79,15 @@ class Delegate {
                             unsigned int modifiers,
                             float delta_x,
                             float delta_y) {}
+
+  // An extension's toolbar button was clicked. `x`, `y`, `width`, `height`
+  // are its frame in screen coordinates, to anchor the extension's popup
+  // under it. Appended after the callbacks above, like OnMouseWheel.
+  virtual void OnExtensionActionClicked(const char* id,
+                                        float x,
+                                        float y,
+                                        float width,
+                                        float height) {}
 
  protected:
   // Not virtual on purpose: the shim never owns or destroys a delegate.
@@ -120,6 +130,22 @@ class NativeWindow {
   // it. No delegate call can arrive after this returns.
   virtual void DestroyWindow() = 0;
 
+  // Extension toolbar buttons, appended after DestroyWindow so the slots
+  // above keep their places. Adds the button for extension `id`, or updates
+  // it: `argb` is width*height non-premultiplied 0xAARRGGBB pixels (null for
+  // a blank button), `badge_text` empty for no badge. No-ops without a
+  // toolbar.
+  virtual void SetExtensionAction(const char* id,
+                                  const unsigned int* argb,
+                                  int width,
+                                  int height,
+                                  const char* badge_text,
+                                  unsigned int badge_background_argb,
+                                  unsigned int badge_text_argb,
+                                  const char* tooltip,
+                                  bool enabled) = 0;
+  virtual void RemoveExtensionAction(const char* id) = 0;
+
  protected:
   ~NativeWindow() {}
 };
@@ -147,8 +173,8 @@ void HaikuShimScreenFrame(float out_xywh[4]);
 // Write a file's Haiku icon attributes from a 32-bit ARGB image, so an
 // installed web app's launcher carries the site's own icon. `argb` is
 // width*height non-premultiplied 0xAARRGGBB pixels -- SkColor's layout --
-// so the caller never names a BeAPI type and this library never names a
-// Skia one. Scaled here to 32x32 and 16x16.
+// which is how the caller avoids naming a BeAPI type and this file avoids
+// naming a Skia one. Scaled here to 32x32 and 16x16.
 bool HaikuShimSetFileIcon(const char* path,
                           const unsigned int* argb,
                           int width,

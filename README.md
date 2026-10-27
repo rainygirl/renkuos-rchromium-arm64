@@ -4,8 +4,9 @@
 
 Chromium running natively on Haiku/AArch64 -- Apple Silicon and other arm64
 machines -- with a BeAPI toolbar: back/forward/reload, an address field, and
-bookmarks. Noto Sans CJK is bundled, so Korean, Japanese and Chinese pages
-render without extra fonts. It runs on the RENKU arm64 image (Haiku arm64 with the TLSDESC
+bookmarks. Noto Sans CJK, Noto Sans Arabic and Noto Color Emoji are bundled,
+so Korean, Japanese, Chinese and Arabic pages, and colour emoji, render
+without extra fonts. It runs on the RENKU arm64 image (Haiku arm64 with the TLSDESC
 loader patch); stock Haiku arm64 images cannot load it.
 
 ![R Chromium rendering news.naver.com on the Haiku arm64 desktop](docs/images/screenshot-naver.png)

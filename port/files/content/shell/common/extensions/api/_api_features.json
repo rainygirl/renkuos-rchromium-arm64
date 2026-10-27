@@ -1,0 +1,100 @@
+// Copyright 2026 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+// R Chromium: the API features of the //chrome APIs content_shell implements,
+// trimmed from chrome/common/extensions/api/_api_features.json (extension
+// contexts only; no WebUI, no feature-flagged members).
+{
+  "action": {
+    "dependencies": ["manifest:action"],
+    "contexts": ["privileged_extension"]
+  },
+  "cookies": {
+    "dependencies": ["permission:cookies"],
+    "contexts": ["privileged_extension"]
+  },
+  "extension": {
+    "channel": "stable",
+    "extension_types": ["extension", "legacy_packaged_app"],
+    "contexts": ["privileged_extension"]
+  },
+  "extension.getBackgroundPage": {
+    "contexts": ["privileged_extension"],
+    "disallow_for_service_workers": true
+  },
+  "extension.getExtensionTabs": {
+    "contexts": ["privileged_extension"],
+    "disallow_for_service_workers": true,
+    "max_manifest_version": 2
+  },
+  "extension.getURL": {
+    "contexts": ["privileged_extension", "unprivileged_extension",
+                 "content_script"],
+    "max_manifest_version": 2
+  },
+  "extension.getViews": {
+    "channel": "stable",
+    "contexts": ["privileged_extension"],
+    "extension_types": ["extension", "legacy_packaged_app"],
+    "disallow_for_service_workers": true
+  },
+  "extension.inIncognitoContext": {
+    "contexts": ["privileged_extension", "unprivileged_extension",
+                 "content_script"]
+  },
+  "extension.lastError": {
+    "contexts": ["privileged_extension", "unprivileged_extension",
+                 "content_script"],
+    "max_manifest_version": 2
+  },
+  "extension.onRequest": {
+    "contexts": ["privileged_extension", "unprivileged_extension",
+                 "content_script"],
+    "max_manifest_version": 2
+  },
+  "extension.onRequestExternal": {
+    "max_manifest_version": 2
+  },
+  "extension.sendRequest": {
+    "contexts": ["privileged_extension", "unprivileged_extension",
+                 "content_script"],
+    "max_manifest_version": 2
+  },
+  "tabs": {
+    "channel": "stable",
+    "extension_types": ["extension", "legacy_packaged_app"],
+    "contexts": ["privileged_extension"]
+  },
+  "tabs.executeScript": {
+    "max_manifest_version": 2
+  },
+  "tabs.getAllInWindow": {
+    "max_manifest_version": 2
+  },
+  "tabs.getSelected": {
+    "max_manifest_version": 2
+  },
+  "tabs.insertCSS": {
+    "max_manifest_version": 2
+  },
+  "tabs.removeCSS": {
+    "max_manifest_version": 2
+  },
+  "tabs.onActiveChanged": {
+    "max_manifest_version": 2
+  },
+  "tabs.onHighlightChanged": {
+    "max_manifest_version": 2
+  },
+  "tabs.onSelectionChanged": {
+    "max_manifest_version": 2
+  },
+  "tabs.sendRequest": {
+    "max_manifest_version": 2
+  },
+  "webNavigation": {
+    "dependencies": ["permission:webNavigation"],
+    "contexts": ["privileged_extension"]
+  }
+}

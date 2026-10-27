@@ -149,7 +149,7 @@ def link(target, path):
     os.symlink(target, path)
 
 
-LAUNCH_FLAGS = ("--ozone-platform=haiku --no-sandbox --single-process --disable-gpu "
+LAUNCH_FLAGS = ("--ozone-platform=haiku --disable-gpu "
                 "--in-process-gpu --disable-gpu-compositing")
 
 
@@ -165,6 +165,9 @@ def install_links(prefix):
     with open(launcher, "w") as f:
         f.write('#!/bin/sh\n# R Chromium launcher (written by install.py)\n'
                 'cd "%s" || exit 1\nLIBRARY_PATH="%s"\nexport LIBRARY_PATH\n'
+                # Haiku's default of 256 descriptors is not enough once
+                # renderers run in their own processes.
+                'ulimit -n 8192 2>/dev/null\n'
                 'exec ./content_shell %s "$@"\n' % (prefix, LIBRARY_PATH, LAUNCH_FLAGS))
     os.chmod(launcher, 0o755)
     icon = os.path.join(prefix, "rchromium.hvif")

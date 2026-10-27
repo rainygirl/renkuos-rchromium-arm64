@@ -22,6 +22,12 @@ std::map<gfx::AcceleratedWidget, HaikuToolbarObserver*>& ObserverMap() {
 
 }  // namespace
 
+HaikuToolbarAction::HaikuToolbarAction() = default;
+HaikuToolbarAction::HaikuToolbarAction(const HaikuToolbarAction&) = default;
+HaikuToolbarAction& HaikuToolbarAction::operator=(const HaikuToolbarAction&) =
+    default;
+HaikuToolbarAction::~HaikuToolbarAction() = default;
+
 void SetHaikuToolbarObserver(gfx::AcceleratedWidget widget,
                              HaikuToolbarObserver* observer) {
   if (observer)

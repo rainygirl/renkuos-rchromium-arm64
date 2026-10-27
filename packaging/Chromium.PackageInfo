@@ -5,9 +5,11 @@ summary			"Chromium web browser"
 description		"Chromium built for Haiku on AArch64.
 
 Ozone is the windowing backend and ANGLE is linked statically. Audio goes
-through a silent fake device until the Media Kit backend exists, and there
-is no sandbox: Haiku has no seccomp, no user namespaces and no zygote, so a
-compromised renderer reaches the same files and syscalls as the browser."
+through a silent fake device until the Media Kit backend exists.
+Renderers run in their own processes and drop root, so they cannot write
+your files or kill other applications, but this is not a full sandbox:
+Haiku has no seccomp or namespaces, and a compromised renderer can still
+read files, open connections and message other applications."
 vendor			"The Chromium Authors"
 packager		"The RENKU project"
 copyrights		{

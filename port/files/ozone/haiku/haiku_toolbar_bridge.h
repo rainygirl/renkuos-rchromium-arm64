@@ -7,7 +7,9 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_ui_types.h"
 
 // The narrow seam between content_shell's Haiku delegate and the ozone Haiku
@@ -29,6 +31,10 @@ class HaikuToolbarObserver {
   // The install button, shown only while HaikuToolbarSetInstallable()
   // says the page carries a usable web app manifest.
   virtual void OnInstall() = 0;
+  // An extension's toolbar button. `anchor` is its frame in screen
+  // coordinates, for placing the popup.
+  virtual void OnExtensionActionClicked(const std::string& id,
+                                        const gfx::Rect& anchor) {}
 
  protected:
   ~HaikuToolbarObserver() = default;
@@ -53,6 +59,32 @@ void HaikuToolbarSetTitle(gfx::AcceleratedWidget widget,
 void HaikuToolbarSetInstallable(gfx::AcceleratedWidget widget,
                                 bool installable,
                                 const std::string& app_name);
+
+// One extension's toolbar button, as it should look for the window's tab.
+struct HaikuToolbarAction {
+  HaikuToolbarAction();
+  HaikuToolbarAction(const HaikuToolbarAction&);
+  HaikuToolbarAction& operator=(const HaikuToolbarAction&);
+  ~HaikuToolbarAction();
+
+  std::string id;  // The extension ID.
+  // width*height non-premultiplied 0xAARRGGBB pixels (SkColor's layout);
+  // empty for no icon.
+  std::vector<uint32_t> argb;
+  int width = 0;
+  int height = 0;
+  std::string badge_text;
+  uint32_t badge_background = 0;
+  uint32_t badge_text_color = 0;
+  std::string tooltip;
+  bool enabled = true;
+};
+
+// Add or update, and remove, an extension's toolbar button.
+void HaikuToolbarSetAction(gfx::AcceleratedWidget widget,
+                           const HaikuToolbarAction& action);
+void HaikuToolbarRemoveAction(gfx::AcceleratedWidget widget,
+                              const std::string& id);
 
 // Write a file's Haiku icon attributes from a 32-bit ARGB image, so an
 // installed web app's launcher carries the site's icon. `argb` is

@@ -151,15 +151,21 @@ void HaikuEventBridge::OnMouseDown(float x,
                                    unsigned int modifiers,
                                    int buttons,
                                    int clicks) {
-  int flags =
-      EventFlagsFromModifiers(modifiers) | EventFlagsFromButtons(buttons);
+  const int button_flags = EventFlagsFromButtons(buttons);
+  int flags = EventFlagsFromModifiers(modifiers) | button_flags;
+  // The click count rides in `flags`, where MouseEvent::GetClickCount() reads
+  // it. The changed-button flags may hold mouse-button bits only:
+  // MouseEvent's constructor DCHECKs that, and passing `flags` there made
+  // every double-click abort the browser.
   if (clicks == 2) {
     flags |= EF_IS_DOUBLE_CLICK;
+  } else if (clicks >= 3) {
+    flags |= EF_IS_TRIPLE_CLICK;
   }
   gfx::PointF location(x, y);
   auto event = std::make_unique<MouseEvent>(EventType::kMousePressed, location,
                                             location, EventTimeForNow(), flags,
-                                            flags);
+                                            button_flags);
   ui_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&HaikuWindow::OnEventFromWindowThread, window_,
                                 std::move(event)));
@@ -320,6 +326,20 @@ void HaikuEventBridge::OnReloadOrStop() {
 void HaikuEventBridge::OnInstall() {
   ui_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&HaikuWindow::OnToolbarInstall, window_));
+}
+
+void HaikuEventBridge::OnExtensionActionClicked(const char* id,
+                                                float x,
+                                                float y,
+                                                float width,
+                                                float height) {
+  // The pointer is only valid during this call, so copy before posting.
+  std::string extension_id(id != nullptr ? id : "");
+  const gfx::Rect anchor(static_cast<int>(x), static_cast<int>(y),
+                         static_cast<int>(width), static_cast<int>(height));
+  ui_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&HaikuWindow::OnToolbarExtensionAction,
+                                window_, std::move(extension_id), anchor));
 }
 
 void HaikuEventBridge::OnNavigateToURL(const char* utf8) {

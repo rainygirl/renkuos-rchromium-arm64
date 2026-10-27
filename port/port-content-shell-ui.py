@@ -22,7 +22,11 @@ software compositing in-process on Haiku.
    other composited pages render instead of crashing/hanging (verified on the
    renku-arm64 desktop, 2026-09-14).
 
-Both steps are idempotent.
+3. Same file: child processes run with Haiku's debugger disabled, so a
+   crashed renderer dies and is replaced instead of sitting suspended behind
+   debug_server's alert.
+
+Every step is idempotent.
 """
 import sys
 
@@ -132,9 +136,55 @@ def _patch_main_delegate(src):
           "(--in-process-gpu --disable-gpu)")
 
 
+def _patch_child_debugger(src):
+    p = src + "/content/shell/app/shell_main_delegate.cc"
+    s = open(p).read()
+    if "disable_debugger(" in s:
+        print("  content_shell UI: child crash dialog already off")
+        return
+    inc_anchor = '#include "build/build_config.h"\n'
+    inc = (
+        inc_anchor +
+        '\n'
+        '#if BUILDFLAG(IS_HAIKU)\n'
+        '#include <OS.h>\n'
+        '#include <stdlib.h>\n'
+        '#endif\n'
+    )
+    anchor = '#endif  // BUILDFLAG(IS_HAIKU)\n'
+    block = (
+        anchor +
+        '\n'
+        '#if BUILDFLAG(IS_HAIKU)\n'
+        '  // A crashed child (renderer, utility) should just die: the browser\n'
+        '  // notices and shows the page as crashed, as on any other system. Haiku\n'
+        '  // instead hands every crashing team to debug_server, whose modal\n'
+        '  // "has encountered an error" alert keeps the child suspended until\n'
+        '  // someone answers -- one alert per renderer, and a relaunched\n'
+        '  // renderer that crashes again brings the next. The browser process\n'
+        '  // keeps the alert. RCH_CHILD_DEBUGGER=1 keeps it for children too,\n'
+        '  // for debugging.\n'
+        '  if (command_line.HasSwitch(switches::kProcessType) &&\n'
+        '      !getenv("RCH_CHILD_DEBUGGER")) {\n'
+        '    disable_debugger(1);\n'
+        '  }\n'
+        '#endif  // BUILDFLAG(IS_HAIKU)\n'
+    )
+    for a in (inc_anchor, anchor):
+        n = s.count(a)
+        if n != 1:
+            print("  content_shell UI: child-debugger DRIFTED (%r found %d times)"
+                  % (a.strip(), n))
+            sys.exit(1)
+    s = s.replace(inc_anchor, inc, 1).replace(anchor, block, 1)
+    open(p, "w").write(s)
+    print("  content_shell UI: crash alert off in child processes")
+
+
 def main(src):
     _patch_build_gn(src)
     _patch_main_delegate(src)
+    _patch_child_debugger(src)
 
 
 if __name__ == "__main__":

@@ -34,9 +34,9 @@ C = os.path.join(src, "base/message_loop/message_pump_epoll.cc")
 EDITS = [
     # Draining the wake-up. A real eventfd is a counter: one read empties it
     # and the descriptor stops being readable. Haiku has no eventfd, so the
-    # shim uses a UDP socket connected to itself (see
-    # base/message_loop/epoll_shim_haiku.h), where each ScheduleWork() queues
-    # a separate 8-byte datagram and one read removes only one of them. Any
+    # pump uses a pair of Unix datagram sockets (below), where each
+    # ScheduleWork() queues a separate 8-byte datagram and one read removes
+    # only one of them. Any
     # backlog therefore left the descriptor readable, poll() returned at once,
     # and the pump spun -- which is what had the renderer thread burning a
     # whole core with nothing rendering. Drain to EAGAIN to get the counter
@@ -68,12 +68,15 @@ EDITS = [
      "  epoll_event epoll_events[16];\n"
      "#endif\n"),
 
-    # <sys/eventfd.h> does not exist on Haiku; epoll_shim_haiku.h supplies an
-    # eventfd() of its own (a UDP socket connected to itself).
+    # <sys/eventfd.h> does not exist on Haiku; the wake-up is a socket pair
+    # instead (below).
     ("base/message_loop/message_pump_epoll.cc",
      "#include <sys/eventfd.h>\n",
      "#if !defined(__HAIKU__)\n"
      "#include <sys/eventfd.h>\n"
+     "#else\n"
+     "#include <fcntl.h>\n"
+     "#include <sys/socket.h>\n"
      "#endif\n"),
 
     (H,
@@ -212,12 +215,57 @@ EDITS = [
      "        span(epoll_events).first(base::checked_cast<size_t>(epoll_result));\n"
      "#endif\n"
      "  }\n"),
+    # The wake-up itself. Haiku has no eventfd, so a connected pair of Unix
+    # datagram sockets carries it: ScheduleWork() writes to one end, the pump
+    # polls and drains the other. The port first used one UDP socket bound
+    # and connected to itself, which is a single descriptor like an eventfd,
+    # but it takes an ephemeral port per pump, needs the network stack, and
+    # needs socket(), which a sandboxed renderer may not have
+    # (docs/SANDBOX.md). socketpair() needs none of that.
+    (H,
+     "  ScopedFD wake_event_;\n",
+     "  ScopedFD wake_event_;\n"
+     "#if defined(__HAIKU__)\n"
+     "  // The end of the wake-up socket pair ScheduleWork() writes to;\n"
+     "  // wake_event_ is the end that is polled and drained.\n"
+     "  ScopedFD wake_event_write_;\n"
+     "#endif\n"),
+    (C,
+     "  wake_event_.reset(eventfd(0, EFD_NONBLOCK));\n"
+     "  PCHECK(wake_event_.is_valid());\n",
+     "#if defined(__HAIKU__)\n"
+     "  {\n"
+     "    int pair[2];\n"
+     "    PCHECK(socketpair(AF_UNIX, SOCK_DGRAM, 0, pair) == 0);\n"
+     "    wake_event_.reset(pair[0]);\n"
+     "    wake_event_write_.reset(pair[1]);\n"
+     "    for (int fd : pair) {\n"
+     "      const int flags = fcntl(fd, F_GETFL);\n"
+     "      PCHECK(flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0);\n"
+     "      PCHECK(fcntl(fd, F_SETFD, FD_CLOEXEC) == 0);\n"
+     "    }\n"
+     "  }\n"
+     "#else\n"
+     "  wake_event_.reset(eventfd(0, EFD_NONBLOCK));\n"
+     "  PCHECK(wake_event_.is_valid());\n"
+     "#endif\n"),
+    (C,
+     "  ssize_t n = HANDLE_EINTR(write(wake_event_.get(), &value, "
+     "sizeof(value)));\n",
+     "#if defined(__HAIKU__)\n"
+     "  ssize_t n =\n"
+     "      HANDLE_EINTR(write(wake_event_write_.get(), &value, sizeof(value)));\n"
+     "#else\n"
+     "  ssize_t n = HANDLE_EINTR(write(wake_event_.get(), &value, "
+     "sizeof(value)));\n"
+     "#endif\n"),
 ]
 
 
-def main():
+def main(src):
     applied = skipped = 0
     for path, old, new in EDITS:
+        path = os.path.join(src, path)
         s = open(path).read()
         # An edit is done when its replacement text is present verbatim, not
         # merely when the file mentions Haiku somewhere.
@@ -235,4 +283,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1] if len(sys.argv) > 1 else ".")

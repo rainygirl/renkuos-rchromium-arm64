@@ -1,5 +1,5 @@
 # Build outputs and artifacts.
-build/
+/build/
 out/
 *.o
 *.a

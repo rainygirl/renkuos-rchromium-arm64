@@ -66,6 +66,11 @@ class HaikuEventBridge : public haiku_shim::Delegate {
   void OnReloadOrStop() override;
   void OnNavigateToURL(const char* utf8) override;
   void OnInstall() override;
+  void OnExtensionActionClicked(const char* id,
+                                float x,
+                                float y,
+                                float width,
+                                float height) override;
   void OnMouseWheel(float x,
                     float y,
                     unsigned int modifiers,

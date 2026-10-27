@@ -49,6 +49,7 @@
 #endif
 
 #if BUILDFLAG(IS_HAIKU)
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -64,6 +65,7 @@
 #include "third_party/skia/include/core/SkStream.h"
 #include "third_party/skia/include/core/SkString.h"
 #include "third_party/skia/include/ports/SkFontMgr_directory.h"
+#include "third_party/skia/include/ports/SkTypeface_fontations.h"
 #endif
 
 #include <mutex>
@@ -82,18 +84,34 @@ bool g_factory_called = false;
 //  - per-character fallback across every family, preferring the CJK
 //    regional face that matches the page's language (ko -> KR, ja -> JP,
 //    zh-Hans -> SC, zh-Hant/zh-HK -> TC/HK), then any font with the glyph;
-//  - a sane default family ("Noto Sans", not whatever the scanner met first).
+//  - a sane default family ("Noto Sans", not whatever the scanner met first);
+//  - colour emoji. This FreeType is built without COLR and PNG support, so
+//    the "Noto Color Emoji" face is reopened through Fontations, which draws
+//    COLRv1 (and CBDT), and is preferred whenever Blink asks for emoji
+//    presentation (the "und-Zsye" tag).
 // Font locations, first wins for equal family names:
-//  1. <app dir>/fonts        the bundled Noto Sans CJK (JP/KR/SC/TC/HK)
+//  1. <app dir>/fonts        the bundled Noto Sans CJK (JP/KR/SC/TC/HK),
+//                            Noto Sans Arabic and Noto Color Emoji
 //  2. /boot/system/data/fonts and the non-packaged/user font directories.
 class HaikuFontMgr : public SkFontMgr {
  public:
   explicit HaikuFontMgr(std::vector<sk_sp<SkFontMgr>> parts)
       : parts_(std::move(parts)) {
+    bool tried_emoji = false;
     for (const sk_sp<SkFontMgr>& part : parts_) {
       for (int i = 0; i < part->countFamilies(); ++i) {
         SkString name;
         part->getFamilyName(i, &name);
+        if (name.equals(kEmojiFamily)) {
+          if (!tried_emoji) {
+            tried_emoji = true;
+            emoji_ = MakeFontationsTypeface(part.get(), i);
+          }
+          // FreeType would only draw blank or monochrome glyphs from it.
+          if (emoji_) {
+            continue;
+          }
+        }
         families_.push_back({part.get(), i, std::string(name.c_str())});
       }
     }
@@ -116,6 +134,9 @@ class HaikuFontMgr : public SkFontMgr {
     if (!family_name) {
       return nullptr;
     }
+    if (emoji_ && std::string_view(family_name) == kEmojiFamily) {
+      return sk_make_sp<SingleFaceStyleSet>(emoji_);
+    }
     for (const sk_sp<SkFontMgr>& part : parts_) {
       sk_sp<SkFontStyleSet> set = part->matchFamily(family_name);
       if (set && set->count() > 0) {
@@ -136,6 +157,10 @@ class HaikuFontMgr : public SkFontMgr {
                                                 const char* bcp47[],
                                                 int bcp47_count,
                                                 SkUnichar character) const override {
+    // Emoji presentation wants the colour face before anything else.
+    if (WantsColorEmoji(bcp47, bcp47_count) && HasGlyph(emoji_, character)) {
+      return emoji_;
+    }
     // The family the page asked for first, if it happens to have the glyph.
     if (family_name) {
       sk_sp<SkTypeface> tf = this->onMatchFamilyStyle(family_name, style);
@@ -168,6 +193,10 @@ class HaikuFontMgr : public SkFontMgr {
           return tf;
         }
       }
+    }
+    // Last resort: an emoji with text presentation that no other font has.
+    if (HasGlyph(emoji_, character)) {
+      return emoji_;
     }
     return nullptr;
   }
@@ -212,8 +241,63 @@ class HaikuFontMgr : public SkFontMgr {
     std::string name;
   };
 
+  // A family with one face, for the Fontations emoji typeface.
+  class SingleFaceStyleSet : public SkFontStyleSet {
+   public:
+    explicit SingleFaceStyleSet(sk_sp<SkTypeface> face)
+        : face_(std::move(face)) {}
+    int count() override { return 1; }
+    void getStyle(int index, SkFontStyle* style, SkString* name) override {
+      if (style) {
+        *style = face_->fontStyle();
+      }
+      if (name) {
+        name->reset();
+      }
+    }
+    sk_sp<SkTypeface> createTypeface(int index) override { return face_; }
+    sk_sp<SkTypeface> matchStyle(const SkFontStyle& pattern) override {
+      return face_;
+    }
+
+   private:
+    sk_sp<SkTypeface> face_;
+  };
+
+  static constexpr char kEmojiFamily[] = "Noto Color Emoji";
+
   static bool HasGlyph(const sk_sp<SkTypeface>& tf, SkUnichar character) {
     return tf && tf->unicharToGlyph(character) != 0;
+  }
+
+  // The same font file as the scanner's face, opened by Fontations instead.
+  static sk_sp<SkTypeface> MakeFontationsTypeface(SkFontMgr* part, int index) {
+    sk_sp<SkFontStyleSet> set = part->createStyleSet(index);
+    sk_sp<SkTypeface> scanned = set ? set->matchStyle(SkFontStyle()) : nullptr;
+    if (!scanned) {
+      return nullptr;
+    }
+    int ttc_index = 0;
+    std::unique_ptr<SkStreamAsset> stream = scanned->openStream(&ttc_index);
+    if (!stream) {
+      return nullptr;
+    }
+    return SkTypeface_Make_Fontations(
+        std::move(stream), SkFontArguments().setCollectionIndex(ttc_index));
+  }
+
+  // Blink adds "und-Zsye" for characters it wants drawn as colour emoji.
+  static bool WantsColorEmoji(const char* bcp47[], int count) {
+    // SAFETY: Skia's matchFamilyStyleCharacter contract is that `bcp47`
+    // points at `count` entries.
+    const base::span<const char* const> tags =
+        UNSAFE_BUFFERS(base::span(bcp47, static_cast<size_t>(count)));
+    for (const char* entry : tags) {
+      if (entry && std::string_view(entry) == "und-Zsye") {
+        return true;
+      }
+    }
+    return false;
   }
 
   // Maps the request's BCP 47 tags to the Noto Sans CJK regional face name
@@ -252,6 +336,7 @@ class HaikuFontMgr : public SkFontMgr {
 
   std::vector<sk_sp<SkFontMgr>> parts_;
   std::vector<Family> families_;
+  sk_sp<SkTypeface> emoji_;
 };
 
 sk_sp<SkFontMgr> CreateHaikuFontMgr() {

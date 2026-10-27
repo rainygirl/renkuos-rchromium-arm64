@@ -1326,6 +1326,27 @@ plus `fonts/LICENSE-NotoSansCJK.txt` (SIL OFL 1.1). The RENKU image only ships
 `NotoSansCJKkr-{Regular,Bold}.otf`, so JP/SC/TC glyph variants come from the
 bundle. `packaging/make-release-tarball.sh` requires the three files.
 
+## Arabic and colour emoji (added 2026-10-26)
+
+A Renku nightly has no Arabic or emoji font, so both rendered as boxes.
+`packaging/fetch-fonts.sh <dist>/fonts` (run by build-x64.sh's dist step)
+now fetches every bundled font from pinned tags, checks SHA-256 sums and
+caches them in `~/.cache/rchromium-fonts`: the CJK OTCs above (noto-cjk
+`Sans2.004`, byte-identical to the old release tarball's),
+`NotoSansArabic-{Regular,Bold}.ttf` (notofonts/arabic `NotoSansArabic-v2.013`,
+hinted static) and `Noto-COLRv1.ttf` (googlefonts/noto-emoji `v2.051`), each
+with its OFL 1.1 licence as `LICENSE-<family>.txt`.
+
+Arabic needs no code: per-character fallback's last pass finds Noto Sans
+Arabic, and `<app>/fonts` is scanned first. Emoji did: Chromium's FreeType is
+built without `TT_CONFIG_OPTION_COLOR_LAYERS` and `FT_CONFIG_OPTION_USE_PNG`,
+so neither COLRv1 nor CBDT draws through the FreeType scanner (Linux avoids
+this by scanning with Fontations). `HaikuFontMgr` therefore reopens the
+"Noto Color Emoji" family's file with `SkTypeface_Make_Fontations`, drops the
+FreeType copy from its family list, answers `matchFamily("Noto Color Emoji")`
+with it, returns it first when the request carries Blink's `und-Zsye` tag
+(emoji presentation), and uses it as the very last fallback otherwise.
+
 ## End-user install: install.py, the release tarball, and the launcher
 
 ### Requirements on the device
@@ -2043,3 +2064,73 @@ content_shell, redeployed to csdata, and confirmed on the renku-arm64 desktop th
 `./content_shell https://news.naver.com` (NO flags) renders news.naver.com fully
 (broadcaster logos + LIVE video thumbnail images loaded), zero crashes. The x86
 session's link-corruption fix is unrelated; arm64 never had a blob problem.
+
+## Multi-process again (2026-10-25)
+
+The launchers passed `--single-process` because, on the 2026-09-13/14
+builds, frames from out-of-process renderers never reached the window
+("Launcher flags" above). That was never retested after the fd-0 fix
+(09-15: `res_nclose()` closing whatever descriptor was 0) and the wake-up
+socket fix (09-20), either of which can break a renderer's IPC.
+
+Retested with the published x86_64 build (v154.0.8036.0-13, unchanged) on
+Haiku R1/beta6 hrev59866+92 in VirtualBox, 4 GB, launched with the usual
+flags minus `--single-process`, `ulimit -n 8192`:
+
+- example.com, news.naver.com (live video included), x.com and Wikipedia
+  render in the window. A browser, renderers and utility processes
+  (network, storage) run as separate teams.
+- x.com, three fresh runs each way, 90 s apiece: no crash multi-process or
+  single-process.
+- Two earlier multi-process runs lost an x.com renderer in
+  `base::TerminateBecauseOutOfMemory` (the crash site, disassembled from
+  the stripped binary, is `OnNoMemoryInternal`). The first had naver,
+  YouTube and Wikipedia open in other windows of a 4 GB machine; neither
+  reproduced afterwards. The page itself stayed up, but debug_server's
+  alert held each crashed renderer suspended, and the relaunched one
+  crashed into the next alert.
+
+So the launchers drop `--single-process`, and:
+
+- They set `ulimit -n 8192` (the web-app launcher and install.py did not):
+  Haiku's default is 256 descriptors, and multi-process passes shared
+  memory and IPC channels as descriptors.
+- Child processes call `disable_debugger(1)` (port-content-shell-ui.py), so
+  a crashed renderer dies and shows as crashed instead of waiting behind an
+  alert. `RCH_CHILD_DEBUGGER=1` keeps the alert for debugging.
+
+arm64 was not retested.
+
+## Renderers drop root (2026-10-25)
+
+Haiku has no seccomp-bpf, namespaces or broker, so the launchers passed
+`--no-sandbox`, and `RendererMainPlatformDelegate::EnableSandbox()` returned
+false (which stops the renderer's run loop, so the flag was mandatory). Every
+Haiku application runs as uid 0, but the kernel does check POSIX
+credentials. Measured with a probe on R1/beta6 hrev59866, a team that drops
+from root to uid/gid 65534:
+
+| | |
+|---|---|
+| get root back (`setuid(0)`) | denied |
+| write or create files owned by the user (uid 0, 0644/0755) | denied |
+| signal or kill a uid-0 team | denied |
+| list or clone a uid-0 team's areas | denied |
+| read world-readable files (most of the disk) | allowed |
+| list a uid-0 team's ports and `write_port()` to them | allowed |
+| open an internet socket, fork | allowed |
+| create Chromium-style shared memory in `/tmp` (drwxrwxrwx) | works |
+
+Credentials are per team: a thread created before the drop loses root too.
+
+So `EnableSandbox()` now drops to uid/gid 65534 (setgroups, setgid, setuid,
+then checks that root cannot be regained; any failure is fatal), and the
+launchers no longer pass `--no-sandbox`. A renderer started by a non-root
+user keeps that user's rights and says so in the log.
+
+This is a mitigation, not a sandbox. Port writes are the hole that matters:
+a compromised renderer can send BMessages to Tracker or the registrar and
+have them launch or delete anything. Closing it needs a per-team
+restriction in the kernel (no ports outside an allowlist, no new sockets,
+limited file access), which neither Haiku nor Renku has; that is the next
+step, for Renku.

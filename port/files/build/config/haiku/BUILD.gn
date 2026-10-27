@@ -1,0 +1,77 @@
+# Copyright 2026 The RENKU project
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//build/config/haiku/haiku.gni")
+
+# Haiku's headers are not laid out the way any other POSIX system's are:
+# every kit has its own directory, and the gnu and bsd directories wrap the
+# POSIX ones with #include_next, so they must come first. A Haiku-configured
+# compiler already knows all of this through --with-sysroot, so nothing is
+# added here for the native case; only a cross build needs to be told.
+config("sdk") {
+  cflags = []
+  ldflags = []
+
+  if (haiku_sysroot != "") {
+    cflags += [ "--sysroot=" + rebase_path(haiku_sysroot, root_build_dir) ]
+    ldflags += [ "--sysroot=" + rebase_path(haiku_sysroot, root_build_dir) ]
+  }
+
+  # crtbeginS.o, crtendS.o and libgcc.a belong to the compiler rather than to
+  # the sysroot, so --sysroot does not reach them. Chromium links with its own
+  # clang, which knows nothing about this GCC installation, and the failure
+  # only appears at the final link:
+  #
+  #   ld.lld: error: cannot open crtbeginS.o: No such file or directory
+  #
+  # -B puts the directory on the search path for both the startup objects and
+  # -lgcc, which is what a GCC driver would have done for us.
+  if (haiku_gcc_lib_dir != "") {
+    ldflags += [
+      "-B" + rebase_path(haiku_gcc_lib_dir, root_build_dir),
+      "-L" + rebase_path(haiku_gcc_lib_dir, root_build_dir),
+    ]
+  }
+
+  # aarch64 lld defaults to 64K segment alignment so the image can also be
+  # mapped by a kernel with 64K pages. Haiku uses 4K pages, and its
+  # runtime_loader rejects an image whose LOAD segments span more than
+  # length + MAX_PAGE_SIZE * 2 (images.cpp), which on arm64 is 128K of slack
+  # for the whole image regardless of how many segments it has. Chromium has
+  # four LOAD segments, so three alignment gaps, and lands just over the
+  # limit. Aligning to the page size the kernel actually uses removes the
+  # padding rather than working around the check.
+  ldflags += [
+    "-Wl,-z,max-page-size=4096",
+
+    # Identical code folding makes a symbol name name whichever instance the
+    # linker kept, so an address resolved back to a function is a hint rather
+    # than evidence. Off while the port is being debugged.
+    "-Wl,--icf=none",
+  ]
+
+  # Haiku hides its BSD and GNU extensions -- memrchr, strchrnul,
+  # pthread_getattr_np -- behind _DEFAULT_SOURCE, and anything that defines
+  # _POSIX_C_SOURCE or _XOPEN_SOURCE turns that off.
+  defines = [ "_DEFAULT_SOURCE" ]
+}
+
+# Haiku's C library is libroot; there is no separate libpthread, librt, libdl
+# or libm to link. What libroot does not carry is split across a few small
+# libraries that a Haiku toolchain would link by default, and which the
+# cross-compiling clang knows nothing about:
+config("runtime_library") {
+  # libroot itself is linked by the clang driver. These are the pieces that
+  # live outside it and that a cross-compiling clang does not know to add.
+  libs = [
+    "network",  # sockets, resolver (__res_*), inet_*, if_*, getaddrinfo
+    "bsd",      # the BSD extensions, including arc4random_buf
+    "gnu",      # the glibc-compatibility corner: sched_getaffinity and friends
+  ]
+
+  # No "execinfo": backtrace() is not in Haiku's base libraries at all --
+  # libexecinfo is a HaikuPorts package, and requiring it of every install
+  # for a symbol only the crash paths want is the wrong trade. base's
+  # stack traces come from libdebug instead (see port-base-posix.py).
+}

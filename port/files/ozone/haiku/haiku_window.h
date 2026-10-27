@@ -19,6 +19,7 @@
 #include "ui/events/event.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_ui_types.h"
+#include "ui/ozone/platform/haiku/haiku_toolbar_bridge.h"
 #include "ui/platform_window/platform_window.h"
 #include "ui/platform_window/platform_window_delegate.h"
 
@@ -146,11 +147,14 @@ class HaikuWindow : public PlatformWindow {
   void OnToolbarReloadOrStop();
   void OnToolbarNavigateToURL(std::string text);
   void OnToolbarInstall();
+  void OnToolbarExtensionAction(std::string id, const gfx::Rect& anchor);
   void SetToolbarAddress(const std::string& url);
   void SetToolbarTitle(const std::string& title);
   void SetToolbarLoading(bool loading);
   void SetToolbarNavigationEnabled(bool back, bool forward);
   void SetToolbarInstallable(bool installable, const std::string& app_name);
+  void SetToolbarAction(const HaikuToolbarAction& action);
+  void RemoveToolbarAction(const std::string& id);
 
   base::WeakPtr<HaikuWindow> GetWeakPtr() {
     return weak_ptr_factory_.GetWeakPtr();

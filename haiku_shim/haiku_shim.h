@@ -80,6 +80,15 @@ class Delegate {
                             float delta_x,
                             float delta_y) {}
 
+  // An extension's toolbar button was clicked. `x`, `y`, `width`, `height`
+  // are its frame in screen coordinates, to anchor the extension's popup
+  // under it. Appended after the callbacks above, like OnMouseWheel.
+  virtual void OnExtensionActionClicked(const char* id,
+                                        float x,
+                                        float y,
+                                        float width,
+                                        float height) {}
+
  protected:
   // Not virtual on purpose: the shim never owns or destroys a delegate.
   ~Delegate() {}
@@ -120,6 +129,22 @@ class NativeWindow {
   // Quits the window thread, which deletes the BWindow and this object with
   // it. No delegate call can arrive after this returns.
   virtual void DestroyWindow() = 0;
+
+  // Extension toolbar buttons, appended after DestroyWindow so the slots
+  // above keep their places. Adds the button for extension `id`, or updates
+  // it: `argb` is width*height non-premultiplied 0xAARRGGBB pixels (null for
+  // a blank button), `badge_text` empty for no badge. No-ops without a
+  // toolbar.
+  virtual void SetExtensionAction(const char* id,
+                                  const unsigned int* argb,
+                                  int width,
+                                  int height,
+                                  const char* badge_text,
+                                  unsigned int badge_background_argb,
+                                  unsigned int badge_text_argb,
+                                  const char* tooltip,
+                                  bool enabled) = 0;
+  virtual void RemoveExtensionAction(const char* id) = 0;
 
  protected:
   ~NativeWindow() {}
