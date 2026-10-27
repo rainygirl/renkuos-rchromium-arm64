@@ -79,6 +79,9 @@ done
 awk '/^diff --git /{skip = ($3 == "a/build/rust/std/rules/BUILD.gn")} !skip' \
 	"$HERE/haiku-port.diff" |
 	patch -d "$SRC" -p1 --forward --no-backup-if-mismatch -r - > /dev/null || true
+# On a tree ported before the diff carried ui/gfx's block, the above adds a
+# second one next to the old.
+python3 "$HERE/port-gfx-sources.py" "$SRC"
 
 # 6. Chromium's extension system in content_shell (docs/EXTENSIONS.md). The
 #    embedder came in with files/ above; the schemas of the //chrome APIs it
