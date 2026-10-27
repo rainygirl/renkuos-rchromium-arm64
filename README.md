@@ -111,6 +111,24 @@ pkgman uninstall rchromium
 or `sh install.sh --uninstall`. The patched `haiku` system package stays; it
 is a superset of the stock one.
 
+## Extensions
+
+Chrome extensions (Manifest V3) load from the `Extensions` folder of the
+profile, `~/config/settings/content_shell/Extensions`, one unpacked extension
+per folder; `--load-extension=<dir>` loads one for a single run. Each one with
+an action gets a button in the toolbar, with its badge and popup. Brave
+Shields' ad blocking has been tested; see [docs/EXTENSIONS.md](docs/EXTENSIONS.md)
+for what works and what is left out.
+
+Pages render in their own processes, and those drop root before they touch
+web content ([docs/SANDBOX.md](docs/SANDBOX.md)). That keeps a compromised
+page from writing your files, but it is not a full sandbox.
+
+## Contributors
+
+- [idumych](https://github.com/idumych) -- extensions, the renderer sandbox,
+  multi-process, Arabic and colour emoji fonts, the x86_64 Linux host build
+
 ## AI disclosure
 
 This program was written with Claude.

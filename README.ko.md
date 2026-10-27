@@ -105,6 +105,24 @@ pkgman uninstall rchromium
 또는 `sh install.sh --uninstall`. 패치된 `haiku` 시스템 패키지는 그대로
 남습니다. 원래 패키지의 상위 호환입니다.
 
+## 확장 기능
+
+Chrome 확장(Manifest V3)은 프로필의 `Extensions` 폴더
+(`~/config/settings/content_shell/Extensions`)에서 불러옵니다. 압축을 푼 확장
+하나가 폴더 하나입니다. `--load-extension=<dir>`로 한 번만 불러올 수도 있습니다.
+action이 있는 확장은 툴바에 버튼이 생기고, 배지와 팝업도 나옵니다. Brave Shields의
+광고 차단을 테스트했고, 되는 것과 빠진 것은 [docs/EXTENSIONS.md](docs/EXTENSIONS.md)에
+있습니다.
+
+페이지는 각자의 프로세스에서 렌더링되고, 이 프로세스는 웹 콘텐츠를 다루기 전에 root
+권한을 버립니다([docs/SANDBOX.md](docs/SANDBOX.md)). 그래서 공격당한 페이지가 사용자
+파일을 쓸 수는 없지만, 완전한 샌드박스는 아닙니다.
+
+## 기여자
+
+- [idumych](https://github.com/idumych) -- 확장 기능, 렌더러 샌드박스, 멀티프로세스,
+  아랍어·컬러 이모지 폰트, x86_64 Linux 호스트 빌드
+
 ## AI 활용 고지
 
 이 프로그램은 Claude와 함께 작업해 만들었습니다.

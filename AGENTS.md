@@ -2134,3 +2134,23 @@ have them launch or delete anything. Closing it needs a per-team
 restriction in the kernel (no ports outside an allowlist, no new sockets,
 limited file access), which neither Haiku nor Renku has; that is the next
 step, for Renku.
+
+## PR #1 on arm64 (2026-10-28)
+
+Built in `out/haiku-arm64-nopa` on the M4 and run on the RENKU arm64 VM from a
+BFS copy, with install.py's flags (no `--single-process`, no `--no-sandbox`):
+news.naver.com renders multi-process; two renderers run as uid/gid 65534,
+utility processes as root; a test MV3 extension shows its badge and popup in
+the toolbar and its declarativeNetRequest rule blocks example.org
+(`ERR_BLOCKED_BY_CLIENT`); Arabic, Persian, CJK and colour emoji (skin tones,
+ZWJ, flags, keycaps) render from the bundled fonts.
+
+Two things broke on a tree that was already ported, both fixed in the merge:
+
+- `haiku-port.diff` applied with `--forward` added ui/gfx's full Haiku block
+  next to the older one, and gn stopped on duplicate objects.
+  `port/port-gfx-sources.py` keeps one.
+- The reconstructed `port/files/build/` lost `-z max-page-size=4096`. lld then
+  aligns arm64 segments to 64K and the runtime_loader refuses the binary with
+  "Could not map image: Bad data". Check with `llvm-readelf -lW`: every LOAD
+  but the text one should have Align 0x1000.

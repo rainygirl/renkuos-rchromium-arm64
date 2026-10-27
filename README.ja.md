@@ -109,6 +109,24 @@ pkgman uninstall rchromium
 または `sh install.sh --uninstall`。パッチ済みの `haiku` システムパッケージは
 そのまま残ります。元のパッケージの上位互換です。
 
+## 拡張機能
+
+Chrome 拡張 (Manifest V3) は、プロファイルの `Extensions` フォルダー
+(`~/config/settings/content_shell/Extensions`) から読み込みます。展開した拡張
+1 つがフォルダー 1 つです。`--load-extension=<dir>` で 1 回だけ読み込むこともできます。
+action のある拡張はツールバーにボタンが付き、バッジとポップアップも出ます。Brave
+Shields の広告ブロックをテストしました。動くものと省いたものは
+[docs/EXTENSIONS.md](docs/EXTENSIONS.md) にあります。
+
+ページはそれぞれのプロセスで描画され、そのプロセスは Web コンテンツを扱う前に root
+権限を手放します ([docs/SANDBOX.md](docs/SANDBOX.md))。乗っ取られたページがユーザーの
+ファイルを書き込むことはできませんが、完全なサンドボックスではありません。
+
+## 貢献者
+
+- [idumych](https://github.com/idumych) -- 拡張機能、レンダラーのサンドボックス、
+  マルチプロセス、アラビア語とカラー絵文字のフォント、x86_64 Linux ホストでのビルド
+
 ## AI 利用について
 
 このプログラムは Claude と一緒に作成しました。
