@@ -1337,6 +1337,9 @@ EDITS = [
     # nothing about where it happened. elr (the faulting PC) and lr from the
     # context are the whole answer in that case -- this is what located a null
     # dereference in the media capture factory that the backtrace could not.
+    # The x64 branch is written here rather than by port-x64.py: when that
+    # script rewrote this block, this edit no longer found its own text on an
+    # x64 tree and added the arm64 block a second time.
     ("base/debug/stack_trace_posix.cc",
      "  debug::StackTrace().Print();\n",
      "#if defined(__HAIKU__)\n"
@@ -1345,6 +1348,15 @@ EDITS = [
      "    // included above, declares it -- Haiku has no <ucontext.h>.\n"
      "    const ucontext_t* uc = static_cast<const ucontext_t*>(void_context);\n"
      "    char reg_buf[32];\n"
+     "#if defined(__x86_64__)\n"
+     "    PrintToStderr(\"[haiku] rip=\");\n"
+     "    internal::itoa_r(static_cast<intptr_t>(uc->uc_mcontext.rip), 16, 16,\n"
+     "                     reg_buf);\n"
+     "    PrintToStderr(reg_buf);\n"
+     "    PrintToStderr(\" rsp=\");\n"
+     "    internal::itoa_r(static_cast<intptr_t>(uc->uc_mcontext.rsp), 16, 16,\n"
+     "                     reg_buf);\n"
+     "#else\n"
      "    PrintToStderr(\"[haiku] elr=\");\n"
      "    internal::itoa_r(static_cast<intptr_t>(uc->uc_mcontext.elr), 16, 16,\n"
      "                     reg_buf);\n"
@@ -1352,6 +1364,7 @@ EDITS = [
      "    PrintToStderr(\" lr=\");\n"
      "    internal::itoa_r(static_cast<intptr_t>(uc->uc_mcontext.lr), 16, 16,\n"
      "                     reg_buf);\n"
+     "#endif\n"
      "    PrintToStderr(reg_buf);\n"
      "    PrintToStderr(\"\\n\");\n"
      "  }\n"
