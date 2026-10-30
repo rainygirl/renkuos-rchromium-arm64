@@ -187,9 +187,22 @@ const uint32 kMsgOpenBookmarks = 'rchL';
 const uint32 kMsgInstall = 'rchI';
 const uint32 kMsgExtensionAction = 'rchX';
 
-const float kChromeHeight = 30.0f;
-const float kButtonSize = 24.0f;
-const float kPadding = 3.0f;
+// Haiku scales its UI by the default font size, 12 pt being 1x (RENKU's
+// Retina mode sets 24 pt). The toolbar follows it, or at 2x its 30-pixel
+// strip clipped the address field's text in half.
+float UiScale() {
+  static float scale = 0.0f;
+  if (scale == 0.0f) {
+    scale = be_plain_font != NULL ? be_plain_font->Size() / 12.0f : 1.0f;
+    if (scale < 1.0f)
+      scale = 1.0f;
+  }
+  return scale;
+}
+
+float ChromeHeight() { return roundf(30.0f * UiScale()); }
+float ButtonSize() { return roundf(24.0f * UiScale()); }
+float Padding() { return roundf(3.0f * UiScale()); }
 
 const char kChromeViewName[] = "rchromium chrome";
 
@@ -512,7 +525,7 @@ class ActionButton : public BView {
 
   void DrawBadge() {
     BFont font(be_bold_font);
-    font.SetSize(8.0f);
+    font.SetSize(8.0f * UiScale());
     SetFont(&font);
     font_height metrics;
     font.GetHeight(&metrics);
@@ -731,8 +744,8 @@ class BookmarksWindow : public BWindow {
         opener_(opener) {
     BRect bounds = Bounds();
 
-    BRect search_frame(kPadding, kPadding, bounds.right - kPadding,
-                       kPadding + 22);
+    BRect search_frame(Padding(), Padding(), bounds.right - Padding(),
+                       Padding() + roundf(22.0f * UiScale()));
     search_ = new BTextControl(search_frame, "search", NULL, "",
                                new BMessage(kMsgBookmarkSearch),
                                B_FOLLOW_LEFT_RIGHT | B_FOLLOW_TOP);
@@ -740,9 +753,9 @@ class BookmarksWindow : public BWindow {
     search_->SetModificationMessage(new BMessage(kMsgBookmarkSearch));
     AddChild(search_);
 
-    BRect list_frame(kPadding, search_frame.bottom + kPadding,
-                     bounds.right - kPadding - B_V_SCROLL_BAR_WIDTH,
-                     bounds.bottom - kPadding);
+    BRect list_frame(Padding(), search_frame.bottom + Padding(),
+                     bounds.right - Padding() - B_V_SCROLL_BAR_WIDTH,
+                     bounds.bottom - Padding());
     list_ = new BOutlineListView(list_frame, "bookmarks",
                                  B_SINGLE_SELECTION_LIST, B_FOLLOW_ALL_SIDES);
     list_->SetInvocationMessage(new BMessage(kMsgBookmarkOpen));
@@ -837,7 +850,7 @@ class BrowserChromeView : public BView, public BookmarkOpener {
         delegate_(delegate) {
     SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
 
-    float x = kPadding;
+    float x = Padding();
     back_ = AddButton(&x, "back", ChromeButton::Glyph::kBack, kMsgBack);
     forward_ =
         AddButton(&x, "forward", ChromeButton::Glyph::kForward, kMsgForward);
@@ -847,19 +860,19 @@ class BrowserChromeView : public BView, public BookmarkOpener {
 
     // Hidden until a page says it can be installed. Created here rather than
     // on demand so Layout() never has to care whether it exists.
-    install_ = new ChromeButton(BRect(0, 0, kButtonSize - 1, kButtonSize - 1),
+    install_ = new ChromeButton(BRect(0, 0, ButtonSize() - 1, ButtonSize() - 1),
                                 "install", ChromeButton::Glyph::kInstall,
                                 kMsgInstall);
     install_->SetEnabled(true);
     install_->Hide();
     AddChild(install_);
 
-    star_ = new ChromeButton(BRect(0, 0, kButtonSize - 1, kButtonSize - 1),
+    star_ = new ChromeButton(BRect(0, 0, ButtonSize() - 1, ButtonSize() - 1),
                              "add bookmark", ChromeButton::Glyph::kStar,
                              kMsgAddBookmark);
     star_->SetEnabled(true);
     AddChild(star_);
-    bookmarks_ = new ChromeButton(BRect(0, 0, kButtonSize - 1, kButtonSize - 1),
+    bookmarks_ = new ChromeButton(BRect(0, 0, ButtonSize() - 1, ButtonSize() - 1),
                                   "bookmarks", ChromeButton::Glyph::kList,
                                   kMsgOpenBookmarks);
     bookmarks_->SetEnabled(true);
@@ -1009,7 +1022,7 @@ class BrowserChromeView : public BView, public BookmarkOpener {
     const bool added = button == NULL;
     if (added) {
       button = new ActionButton(
-          BRect(0, 0, kButtonSize - 1, kButtonSize - 1), id);
+          BRect(0, 0, ButtonSize() - 1, ButtonSize() - 1), id);
       AddChild(button);
       actions_.push_back(button);
     }
@@ -1060,19 +1073,19 @@ class BrowserChromeView : public BView, public BookmarkOpener {
 
 
   void Layout(float width) {
-    const float top = (kChromeHeight - kButtonSize) / 2.0f;
+    const float top = (ChromeHeight() - ButtonSize()) / 2.0f;
     const int right_buttons = install_->IsHidden() ? 2 : 3;
-    const float step = kButtonSize + kPadding;
+    const float step = ButtonSize() + Padding();
     const float right_block = (right_buttons + actions_.size()) * step;
-    bookmarks_->MoveTo(width - kButtonSize - kPadding, top);
-    star_->MoveTo(width - 2 * kButtonSize - 2 * kPadding, top);
-    install_->MoveTo(width - 3 * kButtonSize - 3 * kPadding, top);
+    bookmarks_->MoveTo(width - ButtonSize() - Padding(), top);
+    star_->MoveTo(width - 2 * ButtonSize() - 2 * Padding(), top);
+    install_->MoveTo(width - 3 * ButtonSize() - 3 * Padding(), top);
     float x = width - right_buttons * step;
     for (auto it = actions_.rbegin(); it != actions_.rend(); ++it) {
       x -= step;
       (*it)->MoveTo(x, top);
     }
-    const float address_width = width - address_left_ - kPadding - right_block;
+    const float address_width = width - address_left_ - Padding() - right_block;
     address_->ResizeTo(address_width > 40.0f ? address_width : 40.0f,
                        address_->Bounds().Height());
   }
@@ -1081,17 +1094,17 @@ class BrowserChromeView : public BView, public BookmarkOpener {
                           const char* name,
                           ChromeButton::Glyph glyph,
                           uint32 what) {
-    const float top = (kChromeHeight - kButtonSize) / 2.0f;
-    BRect frame(*x, top, *x + kButtonSize - 1, top + kButtonSize - 1);
+    const float top = (ChromeHeight() - ButtonSize()) / 2.0f;
+    BRect frame(*x, top, *x + ButtonSize() - 1, top + ButtonSize() - 1);
     ChromeButton* button = new ChromeButton(frame, name, glyph, what);
     AddChild(button);
-    *x += kButtonSize + kPadding;
+    *x += ButtonSize() + Padding();
     return button;
   }
 
   BRect AddressFrame(float left) const {
-    return BRect(left, kPadding, Bounds().right - kPadding,
-                 kChromeHeight - kPadding - 1);
+    return BRect(left, Padding(), Bounds().right - Padding(),
+                 ChromeHeight() - Padding() - 1);
   }
 
   Delegate* delegate_;
@@ -1116,7 +1129,7 @@ class ShimWindow : public BWindow, public NativeWindow {
       // has no undecorated member, so this takes the look/feel constructor
       // and names the decoration directly.
       // `frame` is the CONTENT rect Chromium asked for. With a toolbar the
-      // window is taller by kChromeHeight so the content view gets exactly
+      // window is taller by ChromeHeight() so the content view gets exactly
       // that size, and every frame reported back (FrameMoved, GetWindowFrame)
       // is the content rect again -- Chromium never sees the toolbar strip.
       : BWindow(WindowFrameForContent(frame, with_toolbar),
@@ -1135,10 +1148,10 @@ class ShimWindow : public BWindow, public NativeWindow {
     BRect content = Bounds();
     if (with_toolbar) {
       BRect chrome_frame = Bounds();
-      chrome_frame.bottom = chrome_frame.top + kChromeHeight - 1;
+      chrome_frame.bottom = chrome_frame.top + ChromeHeight() - 1;
       chrome_ = new BrowserChromeView(chrome_frame, delegate);
       AddChild(chrome_);
-      content.top = kChromeHeight;
+      content.top = ChromeHeight();
     }
     view_ = new ShimView(content, delegate);
     AddChild(view_);
@@ -1333,10 +1346,10 @@ class ShimWindow : public BWindow, public NativeWindow {
   Delegate* delegate_;
   // Window frame (screen coords) for a content rect: the toolbar strip sits
   // above the content, inside the same window, so the frame starts
-  // kChromeHeight higher and the content keeps its own origin.
+  // ChromeHeight() higher and the content keeps its own origin.
   static BRect WindowFrameForContent(BRect content, bool with_toolbar) {
     if (with_toolbar) {
-      content.top -= kChromeHeight;
+      content.top -= ChromeHeight();
     }
     return content;
   }
@@ -1345,7 +1358,7 @@ class ShimWindow : public BWindow, public NativeWindow {
   BRect ContentFrame() {
     BRect f = Frame();
     if (with_toolbar_) {
-      f.top += kChromeHeight;
+      f.top += ChromeHeight();
     }
     return f;
   }

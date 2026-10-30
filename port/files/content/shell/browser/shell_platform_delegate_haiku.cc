@@ -26,6 +26,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
+#include "ui/display/screen.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include <sys/stat.h>
 #include <unistd.h>
@@ -550,6 +552,29 @@ void ShellPlatformDelegate::Initialize(const gfx::Size& default_window_size) {
       std::make_unique<ShellPlatformDataAura>(default_window_size);
 }
 
+// A window no bigger than the screen from `origin` on: content_shell's
+// default 800x600 is 1600x1200 pixels at a UI scale of 2, taller than a
+// 2560x1600 screen once the toolbar and the title tab are added.
+static gfx::Size FitOnScreen(const gfx::Point& origin,
+                             const gfx::Size& size) {
+  const display::Screen* screen = display::Screen::Get();
+  if (!screen) {
+    return size;
+  }
+  const gfx::Size screen_size =
+      screen->GetPrimaryDisplay().GetSizeInPixel();
+  // Room for the window's title tab and border, and for the native toolbar,
+  // which the shim adds above the content (30 px at 1x).
+  const float scale = screen->GetPrimaryDisplay().device_scale_factor();
+  const int margin = static_cast<int>(40 * scale);
+  const int toolbar = static_cast<int>(30 * scale);
+  return gfx::Size(
+      std::max(1, std::min(size.width(),
+                           screen_size.width() - origin.x() - margin)),
+      std::max(1, std::min(size.height(), screen_size.height() - origin.y() -
+                                              margin - toolbar)));
+}
+
 void ShellPlatformDelegate::CreatePlatformWindow(
     Shell* shell,
     const gfx::Size& initial_size) {
@@ -564,15 +589,24 @@ void ShellPlatformDelegate::CreatePlatformWindow(
     shell_data.aura = platform_->aura.get();
     aura::WindowTreeHost* host = shell_data.aura->host();
     gfx::Rect bounds = host->GetBoundsInPixels();
-    bounds.set_size(initial_size);
+    // initial_size is in DIPs: at a UI scale of 2 the window is twice as
+    // many pixels, or the page gets half the room it asked for.
+    bounds.set_size(FitOnScreen(
+        bounds.origin(),
+        gfx::ScaleToCeiledSize(initial_size, host->device_scale_factor())));
     host->SetBoundsInPixels(bounds);
   } else {
     shell_data.own_aura = std::make_unique<ShellPlatformDataAura>(initial_size);
     shell_data.aura = shell_data.own_aura.get();
+    aura::WindowTreeHost* host = shell_data.aura->host();
+    const float scale = host->device_scale_factor();
     // Cascade new windows from the top-left, as Tracker does.
-    const int step = 30 * static_cast<int>(shell_data_map_.size() % 8);
-    shell_data.aura->host()->SetBoundsInPixels(
-        gfx::Rect(gfx::Point(step, step), initial_size));
+    const int step = static_cast<int>(
+        30 * scale * static_cast<int>(shell_data_map_.size() % 8));
+    const gfx::Point origin(step, step);
+    host->SetBoundsInPixels(gfx::Rect(
+        origin,
+        FitOnScreen(origin, gfx::ScaleToCeiledSize(initial_size, scale))));
   }
   aura::WindowTreeHost* host = shell_data.aura->host();
   shell_data.resize_observer = std::make_unique<HostResizeObserver>();
