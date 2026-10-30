@@ -61,6 +61,10 @@ python3 "$HERE/port-hid-haiku.py" "$SRC"
 # in memory, so a sign-in lasts exactly as long as the process.
 python3 "$HERE/port-shell-profile.py" "$SRC"
 
+# slack:, mailto: and other schemes the browser does not serve go to the
+# application Haiku has for them, through /bin/open.
+python3 "$HERE/port-shell-external-protocol.py" "$SRC"
+
 for f in $(cd "$HERE/files" && find . -type f); do
 	mkdir -p "$SRC/$(dirname "${f#./}")"
 	cp "$HERE/files/${f#./}" "$SRC/${f#./}"
