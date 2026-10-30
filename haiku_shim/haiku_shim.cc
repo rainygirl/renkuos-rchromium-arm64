@@ -297,12 +297,14 @@ class ChromeButton : public BView {
   void DrawReload(BRect rect, const rgb_color& base, uint32 flags) {
     PushState();
     SetHighColor(Ink(base, flags));
-    SetPenSize(2.0f);
+    SetPenSize(2.0f * UiScale());
     SetFlags(Flags() | B_SUBPIXEL_PRECISE);
 
+    // A third of the button across, the size the back and forward arrows
+    // are drawn at. "Half the button less 2 px" filled the button at 2x.
     const BPoint center(rect.left + rect.Width() / 2.0f,
                         rect.top + rect.Height() / 2.0f);
-    const float radius = std::min(rect.Width(), rect.Height()) / 2.0f - 2.0f;
+    const float radius = std::min(rect.Width(), rect.Height()) * 0.3f;
     StrokeArc(center, radius, radius, 300.0f, 300.0f);
 
     // Arrow head at the open end of the arc, pointing clockwise.
