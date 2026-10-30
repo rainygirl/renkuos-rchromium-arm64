@@ -65,6 +65,10 @@ python3 "$HERE/port-shell-profile.py" "$SRC"
 # application Haiku has for them, through /bin/open.
 python3 "$HERE/port-shell-external-protocol.py" "$SRC"
 
+# Chromium 154 on Haiku, not content_shell 999 on "Unknown": the user agent
+# and client hints content_shell sends by default read as a test shell.
+python3 "$HERE/port-shell-user-agent.py" "$SRC"
+
 for f in $(cd "$HERE/files" && find . -type f); do
 	mkdir -p "$SRC/$(dirname "${f#./}")"
 	cp "$HERE/files/${f#./}" "$SRC/${f#./}"
