@@ -69,6 +69,10 @@ python3 "$HERE/port-shell-external-protocol.py" "$SRC"
 # and client hints content_shell sends by default read as a test shell.
 python3 "$HERE/port-shell-user-agent.py" "$SRC"
 
+# --rch-load-first=<https URL>: load a page in the profile out of sight before
+# the window opens (R Slack's sign-in).
+python3 "$HERE/port-shell-load-first.py" "$SRC"
+
 for f in $(cd "$HERE/files" && find . -type f); do
 	mkdir -p "$SRC/$(dirname "${f#./}")"
 	cp "$HERE/files/${f#./}" "$SRC/${f#./}"
