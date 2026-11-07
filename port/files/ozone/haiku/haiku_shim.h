@@ -89,6 +89,17 @@ class Delegate {
                                         float width,
                                         float height) {}
 
+  // An input method event (B_INPUT_METHOD_EVENT) for the content view:
+  // `opcode` is B_INPUT_METHOD_STARTED, _CHANGED or _STOPPED, `utf8` the
+  // composition ("be:string"). `key_mark` is -1 when the method does not say
+  // which changes come from keys, else 1 for the first change a key caused
+  // and 0 for the rest (koreanime's "koreanime:key"). Appended last, like the
+  // callbacks above.
+  virtual void OnInputMethod(int opcode,
+                             const char* utf8,
+                             bool confirmed,
+                             int key_mark) {}
+
  protected:
   // Not virtual on purpose: the shim never owns or destroys a delegate.
   ~Delegate() {}
@@ -145,6 +156,10 @@ class NativeWindow {
                                   const char* tooltip,
                                   bool enabled) = 0;
   virtual void RemoveExtensionAction(const char* id) = 0;
+
+  // Tells the input method that started the current composition to drop it
+  // (Chromium has kept the text). Appended after RemoveExtensionAction.
+  virtual void CancelInputMethodWindow() = 0;
 
  protected:
   ~NativeWindow() {}

@@ -15,6 +15,8 @@ source_set("haiku") {
     "haiku_surface_factory.cc",
     "haiku_surface_factory.h",
     "haiku_beapi.cc",
+    "haiku_input_method.cc",
+    "haiku_input_method.h",
     "haiku_toolbar_bridge.cc",
     "haiku_toolbar_bridge.h",
     "haiku_beapi.h",

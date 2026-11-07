@@ -24,10 +24,12 @@
 #include <Directory.h>
 #include <File.h>
 #include <FindDirectory.h>
+#include <Input.h>
 #include <InterfaceDefs.h>
 #include <ListItem.h>
 #include <Locker.h>
 #include <Message.h>
+#include <Messenger.h>
 #include <OS.h>
 #include <OutlineListView.h>
 #include <Path.h>
@@ -80,7 +82,10 @@ class ShimView : public BView {
       : BView(frame,
               kContentViewName,
               B_FOLLOW_ALL_SIDES,
-              B_WILL_DRAW | B_FRAME_EVENTS | B_NAVIGABLE),
+              B_WILL_DRAW | B_FRAME_EVENTS | B_NAVIGABLE |
+                  // compositions come here, inline, not to input_server's
+                  // bottom-line window
+                  B_INPUT_METHOD_AWARE),
         delegate_(delegate),
         bitmap_(NULL) {
     SetViewColor(B_TRANSPARENT_COLOR);
@@ -156,7 +161,49 @@ class ShimView : public BView {
                               delta_y);
       return;
     }
+    if (message->what == B_INPUT_METHOD_EVENT) {
+      int32 opcode = 0;
+      if (message->FindInt32("be:opcode", &opcode) != B_OK) {
+        return;
+      }
+      bool direct = false;
+      if (message->FindBool("koreanime:direct", &direct) == B_OK && direct) {
+        // plain key presses for views that take no input method events
+        return;
+      }
+      if (opcode == B_INPUT_METHOD_STARTED) {
+        message->FindMessenger("be:reply_to", &input_method_);
+      }
+      const char* text = NULL;
+      if (message->FindString("be:string", &text) != B_OK || text == NULL) {
+        text = "";
+      }
+      bool confirmed = false;
+      message->FindBool("be:confirmed", &confirmed);
+      bool from_key = false;
+      int key_mark = -1;
+      if (message->FindBool("koreanime:key", &from_key) == B_OK) {
+        key_mark = from_key ? 1 : 0;
+      }
+      delegate_->OnInputMethod(opcode, text, confirmed, key_mark);
+      if (opcode == B_INPUT_METHOD_STOPPED) {
+        input_method_ = BMessenger();
+      }
+      return;
+    }
     BView::MessageReceived(message);
+  }
+
+  // Window locked. Asks the method to forget its composition, as BTextView
+  // does when the user clicks elsewhere.
+  void CancelInputMethod() {
+    if (!input_method_.IsValid()) {
+      return;
+    }
+    BMessage message(B_INPUT_METHOD_EVENT);
+    message.AddInt32("be:opcode", B_INPUT_METHOD_STOPPED);
+    input_method_.SendMessage(&message);
+    input_method_ = BMessenger();
   }
 
   void KeyDown(const char* bytes, int32 numBytes) {
@@ -174,6 +221,8 @@ class ShimView : public BView {
  private:
   Delegate* delegate_;
   BBitmap* bitmap_;
+  // The input method's own messenger, from B_INPUT_METHOD_STARTED.
+  BMessenger input_method_;
 };
 
 // ------------------------------------------------------------- native toolbar
@@ -1334,6 +1383,14 @@ class ShimWindow : public BWindow, public NativeWindow {
       return;
     }
     chrome_->RemoveExtensionAction(id);
+    UnlockLooper();
+  }
+
+  void CancelInputMethodWindow() {
+    if (view_ == NULL || !LockLooper()) {
+      return;
+    }
+    view_->CancelInputMethod();
     UnlockLooper();
   }
 

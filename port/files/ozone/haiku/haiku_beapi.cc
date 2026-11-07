@@ -17,6 +17,7 @@
 
 #include "base/functional/bind.h"
 #include "base/strings/utf_string_conversion_utils.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
@@ -24,6 +25,7 @@
 #include "ui/events/keycodes/dom/dom_key.h"
 #include "ui/events/keycodes/keyboard_code_conversion.h"
 #include "ui/events/keycodes/keyboard_codes_posix.h"
+#include "ui/ozone/platform/haiku/haiku_input_method.h"
 #include "ui/ozone/platform/haiku/haiku_window.h"
 
 namespace ui {
@@ -288,6 +290,20 @@ void HaikuEventBridge::OnQuitRequested() {
   ui_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&HaikuWindow::OnCloseRequestedFromWindowThread,
                                 window_));
+}
+
+void HaikuEventBridge::OnInputMethod(int opcode,
+                                     const char* utf8,
+                                     bool confirmed,
+                                     int key_mark) {
+  HaikuImeEvent event;
+  event.opcode = opcode;
+  event.text = base::UTF8ToUTF16(utf8 != nullptr ? utf8 : "");
+  event.confirmed = confirmed;
+  event.key_mark = key_mark;
+  ui_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&HaikuWindow::OnInputMethodFromWindowThread,
+                                window_, std::move(event)));
 }
 
 void HaikuEventBridge::OnActivated(bool active) {

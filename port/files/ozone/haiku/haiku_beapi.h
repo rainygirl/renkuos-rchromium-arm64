@@ -76,6 +76,10 @@ class HaikuEventBridge : public haiku_shim::Delegate {
                     unsigned int modifiers,
                     float delta_x,
                     float delta_y) override;
+  void OnInputMethod(int opcode,
+                     const char* utf8,
+                     bool confirmed,
+                     int key_mark) override;
 
  private:
   base::WeakPtr<HaikuWindow> window_;

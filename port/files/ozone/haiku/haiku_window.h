@@ -30,6 +30,7 @@ class BBitmap;
 namespace ui {
 
 class HaikuWindowManager;
+struct HaikuImeEvent;
 
 // What the compositor thread is allowed to hold on to.
 //
@@ -137,6 +138,9 @@ class HaikuWindow : public PlatformWindow {
   void OnSizeChangedFromWindowThread(const gfx::Size& size);
   void OnCloseRequestedFromWindowThread();
   void OnActivationChangedFromWindowThread(bool active);
+  void OnInputMethodFromWindowThread(const HaikuImeEvent& event);
+  // Tells the Haiku input method to drop the composition Chromium ended.
+  void CancelInputMethod();
 
   // R Chromium native toolbar. The first group runs on the UI thread
   // (posted by the bridge) and drives navigation through the registered

@@ -6,7 +6,6 @@
 
 #include <memory>
 
-#include "ui/base/ime/input_method_minimal.h"
 #include "ui/display/types/native_display_delegate.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #include "ui/events/ozone/layout/stub/stub_keyboard_layout_engine.h"
@@ -14,6 +13,7 @@
 #include "ui/ozone/common/bitmap_cursor_factory.h"
 #include "ui/ozone/common/stub_overlay_manager.h"
 #include "ui/ozone/platform/haiku/haiku_app.h"
+#include "ui/ozone/platform/haiku/haiku_input_method.h"
 #include "ui/ozone/platform/haiku/haiku_screen.h"
 #include "ui/ozone/platform/haiku/haiku_surface_factory.h"
 #include "ui/ozone/platform/haiku/haiku_window.h"
@@ -87,7 +87,8 @@ class OzonePlatformHaiku : public OzonePlatform {
   std::unique_ptr<InputMethod> CreateInputMethod(
       ImeKeyEventDispatcher* ime_key_event_dispatcher,
       gfx::AcceleratedWidget widget) override {
-    return std::make_unique<InputMethodMinimal>(ime_key_event_dispatcher);
+    return std::make_unique<InputMethodHaiku>(ime_key_event_dispatcher,
+                                              widget);
   }
 
   bool InitializeUI(const InitParams& params) override {

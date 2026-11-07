@@ -22,6 +22,7 @@
 #include "ui/display/types/display_constants.h"
 #include "ui/events/event.h"
 #include "ui/ozone/platform/haiku/haiku_beapi.h"
+#include "ui/ozone/platform/haiku/haiku_input_method.h"
 #include "ui/ozone/platform/haiku/haiku_shim.h"
 #include "ui/ozone/platform/haiku/haiku_toolbar_bridge.h"
 #include "base/synchronization/lock.h"
@@ -327,6 +328,21 @@ void HaikuWindow::OnSizeChangedFromWindowThread(const gfx::Size& size) {
 
 void HaikuWindow::OnCloseRequestedFromWindowThread() {
   delegate_->OnCloseRequest();
+}
+
+void HaikuWindow::OnInputMethodFromWindowThread(const HaikuImeEvent& event) {
+  InputMethodHaiku* ime = InputMethodHaiku::ForWidget(widget_);
+  if (ime == nullptr) {
+    return;
+  }
+  ime->OnHaikuImeEvent(event, base::BindRepeating(
+                                  &HaikuWindow::CancelInputMethod, GetWeakPtr()));
+}
+
+void HaikuWindow::CancelInputMethod() {
+  if (window_) {
+    window_->CancelInputMethodWindow();
+  }
 }
 
 void HaikuWindow::OnActivationChangedFromWindowThread(bool active) {
