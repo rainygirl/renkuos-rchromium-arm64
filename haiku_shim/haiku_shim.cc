@@ -15,6 +15,11 @@
 #include "haiku_shim.h"
 
 #include <Application.h>
+#include <Button.h>
+#include <Entry.h>
+#include <ListView.h>
+#include <Mime.h>
+#include <Roster.h>
 #include <Node.h>
 #include <NodeInfo.h>
 #include <Autolock.h>
@@ -280,13 +285,21 @@ class ChromeButton : public BView {
     Invalidate();
   }
 
+  // Drawn pressed in while set: the star on a page that is bookmarked.
+  void SetLatched(bool latched) {
+    if (latched_ == latched)
+      return;
+    latched_ = latched;
+    Invalidate();
+  }
+
   void Draw(BRect update_rect) override {
     const rgb_color base = ui_color(B_PANEL_BACKGROUND_COLOR);
     BRect rect = Bounds();
     uint32 flags = 0;
     if (!enabled_)
       flags |= BControlLook::B_DISABLED;
-    if (pressed_)
+    if (pressed_ || latched_)
       flags |= BControlLook::B_ACTIVATED;
 
     be_control_look->DrawButtonFrame(this, rect, update_rect, base, base,
@@ -394,7 +407,11 @@ class ChromeButton : public BView {
 
   void DrawStar(BRect rect, const rgb_color& base, uint32 flags) {
     PushState();
-    SetHighColor(Ink(base, flags));
+    // A bookmarked page's star is gold, as in other browsers.
+    const rgb_color gold = {235, 170, 20, 255};
+    SetHighColor(latched_ && (flags & BControlLook::B_DISABLED) == 0
+                     ? gold
+                     : Ink(base, flags));
     const BPoint center(rect.left + rect.Width() / 2.0f,
                         rect.top + rect.Height() / 2.0f);
     const float outer = std::min(rect.Width(), rect.Height()) / 2.0f - 1.0f;
@@ -447,6 +464,7 @@ class ChromeButton : public BView {
   uint32 what_;
   bool enabled_ = false;
   bool pressed_ = false;
+  bool latched_ = false;
 };
 
 // ------------------------------------------------------------------ bookmarks
@@ -631,6 +649,32 @@ class BookmarkStore {
     }
     items_.push_back(entry);
     Save();
+  }
+
+  bool Contains(const std::string& url) {
+    if (url.empty())
+      return false;
+    const std::string key = Sanitise(url);
+    BAutolock guard(lock_);
+    EnsureLoaded();
+    for (size_t i = 0; i < items_.size(); ++i) {
+      if (items_[i].url == key)
+        return true;
+    }
+    return false;
+  }
+
+  void Remove(const std::string& url) {
+    const std::string key = Sanitise(url);
+    BAutolock guard(lock_);
+    EnsureLoaded();
+    for (size_t i = 0; i < items_.size(); ++i) {
+      if (items_[i].url == key) {
+        items_.erase(items_.begin() + i);
+        Save();
+        return;
+      }
+    }
   }
 
   std::vector<Bookmark> All() {
@@ -974,7 +1018,13 @@ class BrowserChromeView : public BView, public BookmarkOpener {
           content->MakeFocus(true);
         return;
       case kMsgAddBookmark:
-        BookmarkStore::Get().Add(current_url_, current_title_);
+        // The star toggles: pressed in on a bookmarked page, and pressing
+        // it again takes the bookmark away.
+        if (BookmarkStore::Get().Contains(current_url_))
+          BookmarkStore::Get().Remove(current_url_);
+        else
+          BookmarkStore::Get().Add(current_url_, current_title_);
+        UpdateStar();
         if (bookmarks_window_ != NULL)
           bookmarks_window_->Refresh();
         return;
@@ -1006,8 +1056,13 @@ class BrowserChromeView : public BView, public BookmarkOpener {
     }
   }
 
+  void UpdateStar() {
+    star_->SetLatched(BookmarkStore::Get().Contains(current_url_));
+  }
+
   void SetAddress(const char* url) {
     current_url_ = url != NULL ? url : "";
+    UpdateStar();
     // Do not fight the user: a load finishing while they type must not replace
     // what is in the field.
     if (address_->TextView() != NULL && address_->TextView()->IsFocus())
@@ -1455,7 +1510,376 @@ class ShimWindow : public BWindow, public NativeWindow {
   bool with_toolbar_ = false;
 };
 
+// ---- Downloads ---------------------------------------------------------
+//
+// content_shell has no download UI of its own (its delegate asks for a save
+// path only on Windows and cancels everywhere else). R Chromium saves every
+// download to ~/Downloads and shows it here: one row per download with a
+// progress bar, the bytes so far and the rate. When a download finishes the
+// Downloads folder opens in Tracker.
+//
+// Chromium pushes state with HaikuShimDownloadUpdate() from its UI thread;
+// that only posts a message, and everything else runs on this window's
+// thread. Cancel goes back through the handler Chromium registered.
+
+const uint32 kMsgDownloadUpdate = 'rdlU';
+const uint32 kMsgDownloadCancel = 'rdlC';
+const uint32 kMsgDownloadShow = 'rdlS';
+const uint32 kMsgDownloadClear = 'rdlX';
+const uint32 kMsgDownloadSelect = 'rdlL';
+
+DownloadCancelHandler g_download_cancel = NULL;
+
+std::string FormatBytes(long long bytes) {
+  char buf[32];
+  if (bytes < 1024)
+    snprintf(buf, sizeof(buf), "%lld B", bytes);
+  else if (bytes < 1024LL * 1024)
+    snprintf(buf, sizeof(buf), "%.1f KB", bytes / 1024.0);
+  else if (bytes < 1024LL * 1024 * 1024)
+    snprintf(buf, sizeof(buf), "%.1f MB", bytes / (1024.0 * 1024));
+  else
+    snprintf(buf, sizeof(buf), "%.2f GB", bytes / (1024.0 * 1024 * 1024));
+  return buf;
+}
+
+// Opens `path` in Tracker if it is a folder, or the folder holding it.
+void ShowInTracker(const char* path) {
+  if (path == NULL || path[0] == '\0' || be_roster == NULL)
+    return;
+  BEntry entry(path, true);
+  if (entry.InitCheck() != B_OK)
+    return;
+  if (!entry.IsDirectory()) {
+    BEntry parent;
+    if (entry.GetParent(&parent) != B_OK)
+      return;
+    entry = parent;
+  }
+  entry_ref ref;
+  if (entry.GetRef(&ref) == B_OK)
+    be_roster->Launch(&ref);
+}
+
+class DownloadListItem : public BListItem {
+ public:
+  explicit DownloadListItem(unsigned int id) : id_(id) {}
+
+  unsigned int id() const { return id_; }
+  int state() const { return state_; }
+  const std::string& path() const { return path_; }
+
+  void Set(const char* name,
+           const char* path,
+           long long received,
+           long long total,
+           long long speed,
+           int state) {
+    name_ = name != NULL ? name : "";
+    path_ = path != NULL ? path : "";
+    received_ = received;
+    total_ = total;
+    speed_ = speed;
+    state_ = state;
+  }
+
+  void Update(BView* owner, const BFont* font) override {
+    BListItem::Update(owner, font);
+    font_height fh;
+    font->GetHeight(&fh);
+    line_ = ceilf(fh.ascent + fh.descent + fh.leading);
+    SetHeight(roundf(line_ * 2 + BarHeight() + Padding() * 5));
+  }
+
+  void DrawItem(BView* owner, BRect frame, bool complete) override {
+    const rgb_color bg = ui_color(IsSelected() ? B_LIST_SELECTED_BACKGROUND_COLOR
+                                               : B_LIST_BACKGROUND_COLOR);
+    const rgb_color fg = ui_color(IsSelected() ? B_LIST_SELECTED_ITEM_TEXT_COLOR
+                                               : B_LIST_ITEM_TEXT_COLOR);
+    owner->SetLowColor(bg);
+    owner->FillRect(frame, B_SOLID_LOW);
+
+    font_height fh;
+    owner->GetFontHeight(&fh);
+    const float pad = Padding();
+    const float left = frame.left + pad * 2;
+    const float right = frame.right - pad * 2;
+
+    // File name.
+    owner->SetHighColor(fg);
+    BString name(name_.c_str());
+    owner->TruncateString(&name, B_TRUNCATE_MIDDLE, right - left);
+    owner->DrawString(name.String(),
+                      BPoint(left, frame.top + pad + fh.ascent));
+
+    // Progress bar.
+    BRect bar(left, frame.top + pad * 2 + line_, right,
+              frame.top + pad * 2 + line_ + BarHeight());
+    owner->SetHighColor(tint_color(bg, B_DARKEN_2_TINT));
+    owner->StrokeRect(bar);
+    bar.InsetBy(1, 1);
+    owner->SetHighColor(tint_color(bg, B_DARKEN_1_TINT));
+    owner->FillRect(bar);
+    float fraction = 0.0f;
+    if (state_ == kShimDownloadComplete)
+      fraction = 1.0f;
+    else if (total_ > 0)
+      fraction = std::min(1.0f, static_cast<float>(received_) / total_);
+    if (fraction > 0.0f) {
+      BRect done = bar;
+      done.right = bar.left + roundf((bar.Width()) * fraction);
+      rgb_color fill = ui_color(B_STATUS_BAR_COLOR);
+      if (state_ == kShimDownloadCancelled || state_ == kShimDownloadFailed)
+        fill = tint_color(bg, B_DARKEN_3_TINT);
+      owner->SetHighColor(fill);
+      owner->FillRect(done);
+    }
+
+    // Status line.
+    std::string status;
+    switch (state_) {
+      case kShimDownloadComplete:
+        status = "Done - " + FormatBytes(received_);
+        break;
+      case kShimDownloadCancelled:
+        status = "Cancelled";
+        break;
+      case kShimDownloadFailed:
+        status = "Failed";
+        break;
+      default:
+        status = FormatBytes(received_);
+        if (total_ > 0)
+          status += " of " + FormatBytes(total_);
+        if (speed_ > 0) {
+          status += "  (" + FormatBytes(speed_) + "/s";
+          if (total_ > received_) {
+            const long long secs = (total_ - received_) / speed_;
+            char eta[32];
+            if (secs >= 3600)
+              snprintf(eta, sizeof(eta), ", %lld:%02lld:%02lld left",
+                       secs / 3600, (secs / 60) % 60, secs % 60);
+            else
+              snprintf(eta, sizeof(eta), ", %lld:%02lld left", secs / 60,
+                       secs % 60);
+            status += eta;
+          }
+          status += ")";
+        }
+        break;
+    }
+    owner->SetHighColor(tint_color(fg, IsSelected() ? B_NO_TINT
+                                                     : B_LIGHTEN_1_TINT));
+    owner->DrawString(status.c_str(),
+                      BPoint(left, bar.bottom + 1 + pad + fh.ascent));
+  }
+
+ private:
+  static float BarHeight() { return roundf(10.0f * UiScale()); }
+
+  unsigned int id_;
+  std::string name_;
+  std::string path_;
+  long long received_ = 0;
+  long long total_ = -1;
+  long long speed_ = 0;
+  int state_ = kShimDownloadInProgress;
+  float line_ = 14.0f;
+};
+
+class DownloadsWindow : public BWindow {
+ public:
+  DownloadsWindow()
+      : BWindow(BRect(160, 160, 160 + 420 * UiScale(), 160 + 300 * UiScale()),
+                "Downloads", B_TITLED_WINDOW,
+                B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS) {
+    BView* back = new BView(Bounds(), "back", B_FOLLOW_ALL_SIDES, 0);
+    back->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+    AddChild(back);
+
+    const float pad = Padding() * 2;
+    BRect bounds = back->Bounds();
+
+    cancel_ = new BButton(BRect(0, 0, 10, 10), "cancel", "Cancel",
+                          new BMessage(kMsgDownloadCancel),
+                          B_FOLLOW_RIGHT | B_FOLLOW_BOTTOM);
+    show_ = new BButton(BRect(0, 0, 10, 10), "show", "Show in folder",
+                        new BMessage(kMsgDownloadShow),
+                        B_FOLLOW_RIGHT | B_FOLLOW_BOTTOM);
+    clear_ = new BButton(BRect(0, 0, 10, 10), "clear", "Clear finished",
+                         new BMessage(kMsgDownloadClear),
+                         B_FOLLOW_LEFT | B_FOLLOW_BOTTOM);
+    BButton* buttons[3] = {cancel_, show_, clear_};
+    for (int i = 0; i < 3; ++i)
+      buttons[i]->ResizeToPreferred();
+    const float bh = cancel_->Bounds().Height();
+    const float by = bounds.bottom - pad - bh;
+    clear_->MoveTo(pad, by);
+    cancel_->MoveTo(bounds.right - pad - cancel_->Bounds().Width(), by);
+    show_->MoveTo(cancel_->Frame().left - pad - show_->Bounds().Width(), by);
+    for (int i = 0; i < 3; ++i)
+      back->AddChild(buttons[i]);
+
+    BRect list_frame(pad, pad, bounds.right - pad - B_V_SCROLL_BAR_WIDTH,
+                     by - pad - 2);
+    list_ = new BListView(list_frame, "downloads", B_SINGLE_SELECTION_LIST,
+                          B_FOLLOW_ALL_SIDES);
+    list_->SetSelectionMessage(new BMessage(kMsgDownloadSelect));
+    list_->SetInvocationMessage(new BMessage(kMsgDownloadShow));
+    back->AddChild(new BScrollView("scroller", list_, B_FOLLOW_ALL_SIDES, 0,
+                                   false, true));
+    SetSizeLimits(show_->Bounds().Width() + cancel_->Bounds().Width() +
+                      clear_->Bounds().Width() + pad * 5,
+                  100000, bh * 4, 100000);
+    UpdateButtons();
+  }
+
+  bool QuitRequested() override {
+    Hide();
+    return false;
+  }
+
+  void MessageReceived(BMessage* message) override {
+    switch (message->what) {
+      case kMsgDownloadUpdate:
+        HandleUpdate(message);
+        return;
+      case kMsgDownloadSelect:
+        UpdateButtons();
+        return;
+      case kMsgDownloadCancel:
+        if (DownloadListItem* item = Selected()) {
+          if (item->state() == kShimDownloadInProgress && g_download_cancel)
+            g_download_cancel(item->id());
+        }
+        return;
+      case kMsgDownloadShow:
+        if (DownloadListItem* item = Selected())
+          ShowInTracker(item->path().c_str());
+        return;
+      case kMsgDownloadClear:
+        for (int32 i = list_->CountItems() - 1; i >= 0; --i) {
+          DownloadListItem* item =
+              static_cast<DownloadListItem*>(list_->ItemAt(i));
+          if (item->state() != kShimDownloadInProgress)
+            delete list_->RemoveItem(i);
+        }
+        UpdateButtons();
+        return;
+      default:
+        BWindow::MessageReceived(message);
+    }
+  }
+
+ private:
+  DownloadListItem* Selected() {
+    const int32 index = list_->CurrentSelection();
+    return index < 0 ? NULL
+                     : static_cast<DownloadListItem*>(list_->ItemAt(index));
+  }
+
+  void UpdateButtons() {
+    DownloadListItem* item = Selected();
+    cancel_->SetEnabled(item != NULL &&
+                        item->state() == kShimDownloadInProgress);
+    show_->SetEnabled(item != NULL && !item->path().empty());
+  }
+
+  void HandleUpdate(BMessage* message) {
+    const unsigned int id = message->GetUInt32("id", 0);
+    const int state = message->GetInt32("state", kShimDownloadInProgress);
+
+    DownloadListItem* item = NULL;
+    int32 index = -1;
+    for (int32 i = 0; i < list_->CountItems(); ++i) {
+      DownloadListItem* candidate =
+          static_cast<DownloadListItem*>(list_->ItemAt(i));
+      if (candidate->id() == id) {
+        item = candidate;
+        index = i;
+        break;
+      }
+    }
+    const bool is_new = item == NULL;
+    if (is_new) {
+      // A download the user already cleared does not come back.
+      if (state != kShimDownloadInProgress)
+        return;
+      item = new DownloadListItem(id);
+    }
+    const int old_state = item->state();
+    item->Set(message->GetString("name", ""), message->GetString("path", ""),
+              message->GetInt64("received", 0), message->GetInt64("total", -1),
+              message->GetInt64("speed", 0), state);
+    if (is_new) {
+      list_->AddItem(item, 0);
+      list_->Select(0);
+      if (IsHidden())
+        Show();
+      else
+        Activate();
+    } else {
+      list_->InvalidateItem(index);
+    }
+
+    if (old_state == kShimDownloadInProgress &&
+        state == kShimDownloadComplete) {
+      // Give the file a MIME type now, so Tracker shows its icon and knows
+      // what to open it with.
+      update_mime_info(item->path().c_str(), false, true, false);
+      ShowInTracker(item->path().c_str());
+    }
+    UpdateButtons();
+  }
+
+  BListView* list_ = NULL;
+  BButton* cancel_ = NULL;
+  BButton* show_ = NULL;
+  BButton* clear_ = NULL;
+};
+
+BLocker g_downloads_lock("rchromium downloads");
+DownloadsWindow* g_downloads_window = NULL;
+
 }  // namespace
+
+extern "C" void HaikuShimSetDownloadCancelHandler(
+    DownloadCancelHandler handler) {
+  g_download_cancel = handler;
+}
+
+extern "C" void HaikuShimDownloadUpdate(unsigned int id,
+                                        const char* file_name,
+                                        const char* full_path,
+                                        long long received,
+                                        long long total,
+                                        long long bytes_per_second,
+                                        int state) {
+  if (be_app == NULL)
+    return;
+  {
+    BAutolock guard(g_downloads_lock);
+    if (g_downloads_window == NULL) {
+      g_downloads_window = new DownloadsWindow();
+      // Run the looper hidden; the first download shows it.
+      g_downloads_window->Hide();
+      g_downloads_window->Show();
+    }
+  }
+  BMessage message(kMsgDownloadUpdate);
+  message.AddUInt32("id", id);
+  message.AddString("name", file_name != NULL ? file_name : "");
+  message.AddString("path", full_path != NULL ? full_path : "");
+  message.AddInt64("received", received);
+  message.AddInt64("total", total);
+  message.AddInt64("speed", bytes_per_second);
+  message.AddInt32("state", state);
+  g_downloads_window->PostMessage(&message);
+}
+
+extern "C" void HaikuShimShowInTracker(const char* path) {
+  ShowInTracker(path);
+}
 
 extern "C" void HaikuShimEnsureApp() {
   if (g_app_started) {

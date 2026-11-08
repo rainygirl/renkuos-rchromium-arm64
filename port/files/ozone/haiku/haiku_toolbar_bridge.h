@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/functional/callback.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_ui_types.h"
 
@@ -95,6 +96,20 @@ bool HaikuSetFileIcon(const std::string& path,
                       const uint32_t* argb,
                       int width,
                       int height);
+
+// The shim's Downloads window. Update from the UI thread; `total` is -1 when
+// the size is not known. The cancel callback runs on the UI thread with the
+// download's id.
+enum class HaikuDownloadState { kInProgress, kComplete, kCancelled, kFailed };
+void HaikuDownloadsUpdate(uint32_t id,
+                          const std::string& file_name,
+                          const std::string& full_path,
+                          int64_t received,
+                          int64_t total,
+                          int64_t bytes_per_second,
+                          HaikuDownloadState state);
+void HaikuDownloadsSetCancelCallback(
+    base::RepeatingCallback<void(uint32_t)> callback);
 
 // Called by HaikuWindow (on the UI thread) to reach the registered observer.
 // Returns null if none is registered for the widget.

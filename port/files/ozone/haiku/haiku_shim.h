@@ -195,6 +195,34 @@ bool HaikuShimSetFileIcon(const char* path,
                           int width,
                           int height);
 
+
+// Downloads. The shim keeps one "Downloads" window: a row per download with
+// its progress, Cancel, "Show in folder" and "Clear finished". It opens on the
+// first update for a new download, and when a download completes the file is
+// given a MIME type and its folder opens in Tracker.
+enum {
+  kShimDownloadInProgress = 0,
+  kShimDownloadComplete = 1,
+  kShimDownloadCancelled = 2,
+  kShimDownloadFailed = 3,
+};
+
+// Called on the downloads window's thread when the user presses Cancel.
+typedef void (*DownloadCancelHandler)(unsigned int id);
+void HaikuShimSetDownloadCancelHandler(DownloadCancelHandler handler);
+
+// Any thread. `total` is -1 when the size is not known.
+void HaikuShimDownloadUpdate(unsigned int id,
+                             const char* file_name,
+                             const char* full_path,
+                             long long received,
+                             long long total,
+                             long long bytes_per_second,
+                             int state);
+
+// Opens a folder in Tracker, or the folder holding a file.
+void HaikuShimShowInTracker(const char* path);
+
 }  // extern "C"
 
 }  // namespace haiku_shim

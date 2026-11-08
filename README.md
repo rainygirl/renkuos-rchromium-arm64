@@ -99,8 +99,14 @@ rchromium https://news.naver.com
 - **Address field** -- type a URL and press Enter; a bare `example.com` opens
   `https://example.com`.
 - **Star** -- bookmarks the current page under a date group ("Today", ...).
+  It stays pressed in (gold) on a bookmarked page; press it again to remove
+  the bookmark.
 - **Menu** -- opens a searchable bookmarks window; double-click an entry to
   open it.
+- **Downloads** -- files are saved to `~/Downloads` (an existing name gets
+  ` (1)`). A Downloads window shows each one's progress, speed and time left,
+  with Cancel, Show in folder and Clear finished; when a download completes,
+  the folder opens in Tracker.
 
 ## Uninstall
 

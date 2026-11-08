@@ -2154,3 +2154,50 @@ Two things broke on a tree that was already ported, both fixed in the merge:
   aligns arm64 segments to 64K and the runtime_loader refuses the binary with
   "Could not map image: Bad data". Check with `llvm-readelf -lW`: every LOAD
   but the text one should have Align 0x1000.
+
+## Downloads, and the star that shows a page is bookmarked (2026-11-08)
+
+Nothing downloaded. content_shell's `ShellDownloadManagerDelegate` asks for a
+save path only on Windows (`GetSaveFileName`); everywhere else
+`ChooseDownloadPath()` is `NOTIMPLEMENTED()` and hands back an empty path,
+which cancels the download before a byte is written.
+
+`port/port-shell-downloads.py` (run by apply-haiku-port.sh) makes it, on Haiku:
+
+- save to `~/Downloads` (not `<profile>/Downloads`), through `name.crdownload`
+  until complete, with no prompt; a taken name becomes `name (1).ext`
+  (`base::GetUniquePath()` in `GenerateFilename`, on the thread pool);
+- own a `HaikuDownloadUI` (`port/files/content/shell/browser/haiku_download_ui.cc`),
+  a DownloadManager/DownloadItem observer that pushes each download -- at most
+  every 250 ms, state changes always -- to the native window.
+
+The window is in the shim (`DownloadsWindow`, `HaikuShimDownloadUpdate`):
+a BListView of drawn rows (name, bar, "x of y (rate, time left)"), Cancel,
+Show in folder, Clear finished. It opens on a new download; on completion
+it runs `update_mime_info()` on the file and opens its folder in Tracker
+(`BRoster::Launch` on the directory's entry_ref). Cancel goes back through a
+plain C function pointer (`HaikuShimSetDownloadCancelHandler`), which the
+ozone side (`HaikuDownloadsSetCancelCallback` in haiku_window.cc) posts to
+the UI thread. Only extern "C" functions were added; no Delegate or
+NativeWindow vtable slot moved.
+
+Two traps: `if (suppress_prompting_ || BUILDFLAG(IS_HAIKU))` fails the build
+with `-Wunreachable-code` (the call after it becomes dead), which is why the
+Haiku branch sits in `ChooseDownloadPath`'s `#if BUILDFLAG(IS_WIN)` chain
+instead. And the 154 `DownloadTargetCallback` takes a `DownloadTargetInfo`;
+114's takes eight positional arguments, so the x86 copy of the script differs
+in that one edit.
+
+The star: `BookmarkStore::Contains()`; `ChromeButton::SetLatched()` draws the
+button pressed in (B_ACTIVATED) with a gold star while the current URL is
+bookmarked, re-checked on every `SetAddress()`. Pressing it on a bookmarked
+page removes the bookmark.
+
+Verified on renku-stock-2g (arm64, hvf) from `out/haiku-arm64-nopa` and the
+rebuilt shim, against a local page throttled to 2 MB/s: the window showed
+"14.1 MB of 60.0 MB (2.0 MB/s, 0:22 left)", the completed file landed as
+`~/Downloads/big.bin` and Tracker opened the folder; a second download of the
+same link became `big (1).bin` and Cancel ended it as "Cancelled". The star
+went gold on bookmarking, plain on another page, gold again after Back, and
+plain after a second press. x86_64 (`out/haiku-x64` + shim) compiles and
+links; it was not run.

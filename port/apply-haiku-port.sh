@@ -73,6 +73,10 @@ python3 "$HERE/port-shell-user-agent.py" "$SRC"
 # the window opens (R Slack's sign-in).
 python3 "$HERE/port-shell-load-first.py" "$SRC"
 
+# Downloads: content_shell cancels every download off Windows (no save
+# dialog). Save to ~/Downloads and show the native Downloads window.
+python3 "$HERE/port-shell-downloads.py" "$SRC"
+
 for f in $(cd "$HERE/files" && find . -type f); do
 	mkdir -p "$SRC/$(dirname "${f#./}")"
 	cp "$HERE/files/${f#./}" "$SRC/${f#./}"

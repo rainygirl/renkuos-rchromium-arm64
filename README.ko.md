@@ -94,7 +94,13 @@ rchromium https://news.naver.com
 - **주소 입력란** -- URL을 입력하고 Enter. `example.com`처럼 입력하면
   `https://example.com`을 엽니다.
 - **별** -- 현재 페이지를 날짜 그룹("Today", ...) 아래에 북마크합니다.
+  북마크된 페이지에서는 별이 눌린 상태(금색)로 보이고, 다시 누르면 북마크가
+  해제됩니다.
 - **메뉴** -- 검색 가능한 북마크 창을 엽니다. 항목을 더블클릭하면 열립니다.
+- **다운로드** -- 파일은 `~/Downloads`에 저장됩니다(같은 이름이 있으면
+  ` (1)`이 붙습니다). Downloads 창에 진행률, 속도, 남은 시간이 표시되고
+  Cancel, Show in folder, Clear finished 버튼이 있습니다. 다운로드가 끝나면
+  Tracker에서 그 폴더가 열립니다.
 
 ## 제거
 

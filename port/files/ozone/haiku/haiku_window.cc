@@ -513,6 +513,68 @@ void HaikuToolbarRemoveAction(gfx::AcceleratedWidget widget,
   }
 }
 
+namespace {
+
+struct DownloadCancelTarget {
+  base::Lock lock;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner GUARDED_BY(lock);
+  base::RepeatingCallback<void(uint32_t)> callback GUARDED_BY(lock);
+};
+
+DownloadCancelTarget& GetDownloadCancelTarget() {
+  static base::NoDestructor<DownloadCancelTarget> target;
+  return *target;
+}
+
+// Runs on the shim's Downloads window thread.
+void OnShimDownloadCancel(unsigned int id) {
+  DownloadCancelTarget& target = GetDownloadCancelTarget();
+  base::AutoLock guard(target.lock);
+  if (target.task_runner && target.callback) {
+    target.task_runner->PostTask(FROM_HERE,
+                                 base::BindOnce(target.callback, id));
+  }
+}
+
+}  // namespace
+
+void HaikuDownloadsSetCancelCallback(
+    base::RepeatingCallback<void(uint32_t)> callback) {
+  DownloadCancelTarget& target = GetDownloadCancelTarget();
+  {
+    base::AutoLock guard(target.lock);
+    target.task_runner = base::SingleThreadTaskRunner::GetCurrentDefault();
+    target.callback = std::move(callback);
+  }
+  haiku_shim::HaikuShimSetDownloadCancelHandler(&OnShimDownloadCancel);
+}
+
+void HaikuDownloadsUpdate(uint32_t id,
+                          const std::string& file_name,
+                          const std::string& full_path,
+                          int64_t received,
+                          int64_t total,
+                          int64_t bytes_per_second,
+                          HaikuDownloadState state) {
+  int shim_state = haiku_shim::kShimDownloadInProgress;
+  switch (state) {
+    case HaikuDownloadState::kInProgress:
+      break;
+    case HaikuDownloadState::kComplete:
+      shim_state = haiku_shim::kShimDownloadComplete;
+      break;
+    case HaikuDownloadState::kCancelled:
+      shim_state = haiku_shim::kShimDownloadCancelled;
+      break;
+    case HaikuDownloadState::kFailed:
+      shim_state = haiku_shim::kShimDownloadFailed;
+      break;
+  }
+  haiku_shim::HaikuShimDownloadUpdate(id, file_name.c_str(), full_path.c_str(),
+                                      received, total, bytes_per_second,
+                                      shim_state);
+}
+
 bool HaikuSetFileIcon(const std::string& path,
                       const uint32_t* argb,
                       int width,
