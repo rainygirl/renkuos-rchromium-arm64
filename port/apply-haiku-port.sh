@@ -77,6 +77,10 @@ python3 "$HERE/port-shell-load-first.py" "$SRC"
 # dialog). Save to ~/Downloads and show the native Downloads window.
 python3 "$HERE/port-shell-downloads.py" "$SRC"
 
+# getrlimit: Haiku's 64-bit RLIM_INFINITY changed from 0xffffffff to all
+# ones, and renderers built against the old value died on newer images.
+python3 "$HERE/port-rlimit.py" "$SRC"
+
 for f in $(cd "$HERE/files" && find . -type f); do
 	mkdir -p "$SRC/$(dirname "${f#./}")"
 	cp "$HERE/files/${f#./}" "$SRC/${f#./}"

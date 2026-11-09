@@ -2201,3 +2201,30 @@ same link became `big (1).bin` and Cancel ended it as "Cancelled". The star
 went gold on bookmarking, plain on another page, gold again after Back, and
 plain after a second press. x86_64 (`out/haiku-x64` + shim) compiles and
 links; it was not run.
+
+## No page drew on RenkuOS images from November: RLIM_INFINITY (2026-11-09)
+
+On the RenkuOS arm64 2026.11.09 images every renderer died at startup and
+R Chromium showed an empty window. The renderer log:
+
+	Received signal 4 <unknown> ...
+	[haiku] elr=<content_shell + 0x6579ae8>
+
+which is a `brk #1` in `base::internal::LazySysInfoValue<ByteSize,
+AmountOfVirtualMemory>`: `getrlimit(RLIMIT_DATA)` reported a limit above
+INT64_MAX and `ByteSize`'s CHECK refused it.
+
+RenkuOS picked up upstream's `baa65d5b53` ("sys/resource.h: Correct
+RLIM_INFINITY value"): on 64-bit platforms RLIM_INFINITY is now
+`__HAIKU_ADDR_MAX`, all ones, instead of `0xffffffff`. The binary was built
+against the old header, so it compared rlim_cur with 0xffffffff, got all
+ones from the new kernel, and took "unlimited" for a limit. V8's own
+`SysInfo::AmountOfVirtualMemory()` has the same comparison; it does not
+crash, it reports an enormous limit.
+
+`port/port-rlimit.py` makes both accept either value as unlimited on
+Haiku, so one binary runs on images from before and after the change,
+whichever header it was built against. Package rev 20.
+
+The x86_64 port compares the same way and will fail the same way on an
+x86_64 image with that commit.
